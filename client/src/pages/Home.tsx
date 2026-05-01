@@ -37,6 +37,8 @@ export default function Home() {
 
   const isConnected = connectionQuery.data?.connected ?? false;
   const isLoading = connectionQuery.isLoading;
+  const isError = connectionQuery.isError;
+  const errorMessage = connectionQuery.error instanceof Error ? connectionQuery.error.message : undefined;
 
   // Workflow ID management
   const [showWorkflowInput, setShowWorkflowInput] = useState(false);
@@ -82,6 +84,31 @@ export default function Home() {
         <div className="text-center space-y-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
           <p className="text-sm text-muted-foreground">Checking connection...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── API Error ───────────────────────────────────────────────────
+  if (isError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-8">
+        <div className="max-w-lg text-center space-y-4">
+          <div className="w-16 h-16 rounded-full bg-rose-100 flex items-center justify-center mx-auto">
+            <AlertCircle className="h-7 w-7 text-rose-600" />
+          </div>
+          <h1 className="text-xl font-semibold text-foreground">API Connection Error</h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            We were unable to contact the backend to verify installation status.
+          </p>
+          {errorMessage ? (
+            <p className="text-xs text-muted-foreground">{errorMessage}</p>
+          ) : null}
+          <div className="flex items-center justify-center gap-2">
+            <Button variant="outline" onClick={() => connectionQuery.refetch()}>
+              Retry
+            </Button>
+          </div>
         </div>
       </div>
     );
