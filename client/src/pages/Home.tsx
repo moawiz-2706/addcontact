@@ -19,9 +19,19 @@ import { AlertCircle, CheckCircle2, Loader2, Settings2, Link2 } from "lucide-rea
 import { Button } from "@/components/ui/button";
 import SingleContactForm from "@/components/SingleContactForm";
 import CSVUploadFlow from "@/components/CSVUploadFlow";
+import ContactsPage from "./ContactsPage";
 import { trpc } from "@/lib/trpc";
 
 export default function Home() {
+  const view = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("view") || "";
+  }, []);
+
+  if (view === "contacts") {
+    return <ContactsPage />;
+  }
+
   // Get locationId from URL query parameters
   // When embedded in GHL iframe, the URL will be: https://your-app.com/?locationId=xxx
   const locationId = useMemo(() => {

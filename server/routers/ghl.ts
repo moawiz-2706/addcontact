@@ -15,10 +15,12 @@ import { publicProcedure, protectedProcedure, router } from "../_core/trpc";
 import {
   getInstallation,
   getAllInstallations,
+  searchContacts,
   processContact,
   updateWorkflowId,
   getValidAccessToken,
   type GHLContactData,
+  type GHLContactStatusFilter,
 } from "../ghl-service";
 
 // Contact data schema
@@ -37,6 +39,14 @@ const batchContactSchema = z.object({
   dnd: z.boolean().optional().default(false),
 });
 
+const contactsQuerySchema = z.object({
+  locationId: z.string().min(1),
+  query: z.string().optional().default(""),
+  pageLimit: z.number().int().min(1).max(100).optional().default(25),
+  searchAfter: z.array(z.string()).optional(),
+  statusFilters: z.array(z.enum(["stopped", "clicked", "dnc"])).optional().default([]),
+});
+
 export const ghlRouter = router({
   /**
    * Check if a GHL location is connected (has valid OAuth tokens).
@@ -44,11 +54,13 @@ export const ghlRouter = router({
   connectionStatus: publicProcedure
     .input(z.object({ locationId: z.string().min(1) }))
     .query(async ({ input }) => {
-      const installation = await getInstallation(input.locationId);
+      const normalizedLocationId = input.locationId.trim();
+      const installation = await getInstallation(normalizedLocationId);
       if (!installation) {
+        console.warn(`[GHL] No installation found for location/company id: ${normalizedLocationId}`);
         return {
           connected: false,
-          locationId: input.locationId,
+          locationId: normalizedLocationId,
           workflowId: null,
           expiresAt: null,
         };
@@ -56,7 +68,7 @@ export const ghlRouter = router({
 
       return {
         connected: true,
-        locationId: installation.locationId,
+        locationId: normalizedLocationId,
         workflowId: installation.workflowId,
         expiresAt: installation.expiresAt,
       };
@@ -73,7 +85,8 @@ export const ghlRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const installation = await getInstallation(input.locationId);
+      const normalizedLocationId = input.locationId.trim();
+      const installation = await getInstallation(normalizedLocationId);
       if (!installation) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -90,7 +103,7 @@ export const ghlRouter = router({
       };
 
       const result = await processContact(
-        input.locationId,
+        normalizedLocationId,
         contactData,
         installation.workflowId ?? undefined
       );
@@ -104,7 +117,8 @@ export const ghlRouter = router({
   processBatch: publicProcedure
     .input(batchContactSchema)
     .mutation(async ({ input }) => {
-      const installation = await getInstallation(input.locationId);
+      const normalizedLocationId = input.locationId.trim();
+      const installation = await getInstallation(normalizedLocationId);
       if (!installation) {
         throw new TRPCError({
           code: "NOT_FOUND",
@@ -129,7 +143,7 @@ export const ghlRouter = router({
 
         try {
           const result = await processContact(
-            input.locationId,
+            normalizedLocationId,
             contactData,
             installation.workflowId ?? undefined
           );
@@ -164,7 +178,7 @@ export const ghlRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      await updateWorkflowId(input.locationId, input.workflowId);
+      await updateWorkflowId(input.locationId.trim(), input.workflowId);
       return { success: true };
     }),
 
@@ -184,13 +198,29 @@ export const ghlRouter = router({
   }),
 
   /**
+   * Fetch and normalize contacts from GHL for the read-only Contacts page.
+   */
+  listContacts: publicProcedure
+    .input(contactsQuerySchema)
+    .query(async ({ input }) => {
+      const result = await searchContacts(input.locationId.trim(), {
+        query: input.query,
+        pageLimit: input.pageLimit,
+        searchAfter: input.searchAfter,
+        statusFilters: input.statusFilters as GHLContactStatusFilter[],
+      });
+
+      return result;
+    }),
+
+  /**
    * Verify that the access token is valid by attempting to use it.
    */
   verifyConnection: publicProcedure
     .input(z.object({ locationId: z.string().min(1) }))
     .mutation(async ({ input }) => {
       try {
-        const token = await getValidAccessToken(input.locationId);
+        const token = await getValidAccessToken(input.locationId.trim());
         return { valid: true, message: "Connection is active" };
       } catch (error) {
         return {

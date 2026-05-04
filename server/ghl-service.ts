@@ -8,7 +8,7 @@
  * - Installation management (CRUD on ghl_installations table)
  */
 
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { getDb } from "./db";
 import { ghlInstallations, type GHLInstallation } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -49,6 +49,203 @@ export interface GHLCreateContactResponse {
     phone: string;
     locationId: string;
     dnd: boolean;
+  };
+}
+
+export type GHLContactStatusFilter = "stopped" | "clicked" | "dnc";
+
+export interface GHLListedContact {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  smsStatus: "Follow up" | "Clicked" | "Do Not Contact" | "Finished";
+  emailStatus: "Follow up" | "Clicked" | "Do Not Contact" | "Finished";
+  dateAdded: string;
+}
+
+export interface GHLContactsPage {
+  contacts: GHLListedContact[];
+  pagination: {
+    total: number;
+    searchAfter: string[] | null;
+    pageLimit: number;
+  };
+}
+
+export interface GHLSearchContactsOptions {
+  query?: string;
+  pageLimit?: number;
+  searchAfter?: string[];
+  statusFilters?: GHLContactStatusFilter[];
+}
+
+const REVIEW_WORKFLOW_NAMES = ["01. Review Reactivation", "02. Review Request"];
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .flatMap((item) => {
+      if (typeof item === "string") return [item];
+      if (item && typeof item === "object") {
+        const record = item as Record<string, unknown>;
+        return [record.id, record.name, record.title, record.label, record.workflowId]
+          .filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+      }
+      return [];
+    })
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function getContactTags(contact: Record<string, unknown>): string[] {
+  return toStringArray(contact.tags ?? contact.tagIds ?? contact.tagNames);
+}
+
+function getContactWorkflows(contact: Record<string, unknown>, field: "activeWorkflows" | "finishedWorkflows"): string[] {
+  return toStringArray(contact[field]);
+}
+
+function hasClickedTag(tags: string[]): boolean {
+  return tags.some((tag) => tag.toLowerCase() === "clicked");
+}
+
+function hasReviewWorkflow(workflows: string[]): boolean {
+  return workflows.some((workflow) => {
+    const normalized = workflow.toLowerCase();
+    return REVIEW_WORKFLOW_NAMES.some((name) => {
+      const lower = name.toLowerCase();
+      return normalized === lower || normalized.includes(lower);
+    });
+  });
+}
+
+function determineContactStatus(contact: Record<string, unknown>): GHLListedContact["smsStatus"] {
+  const dnd = Boolean(contact.dnd);
+  const tags = getContactTags(contact);
+  const activeWorkflows = getContactWorkflows(contact, "activeWorkflows");
+  const finishedWorkflows = getContactWorkflows(contact, "finishedWorkflows");
+
+  if (dnd) return "Do Not Contact";
+  if (hasClickedTag(tags)) return "Clicked";
+  if (hasReviewWorkflow(activeWorkflows)) return "Follow up";
+  if (hasReviewWorkflow(finishedWorkflows)) return "Finished";
+
+  return "Finished";
+}
+
+function normalizeContact(contact: Record<string, unknown>): GHLListedContact {
+  const firstName = typeof contact.firstName === "string" ? contact.firstName : "";
+  const lastName = typeof contact.lastName === "string" ? contact.lastName : "";
+  const name = typeof contact.name === "string" && contact.name.trim().length > 0
+    ? contact.name.trim()
+    : `${firstName} ${lastName}`.trim() || "Unnamed contact";
+
+  const dateAddedValue = contact.dateAdded ?? contact.createdAt ?? contact.dateCreated ?? contact.created_at;
+
+  return {
+    id: typeof contact.id === "string" ? contact.id : crypto.randomUUID(),
+    name,
+    phone: typeof contact.phone === "string" ? contact.phone : "",
+    email: typeof contact.email === "string" ? contact.email : "",
+    smsStatus: determineContactStatus(contact),
+    emailStatus: determineContactStatus(contact),
+    dateAdded:
+      typeof dateAddedValue === "string"
+        ? dateAddedValue
+        : typeof dateAddedValue === "number"
+          ? new Date(dateAddedValue).toISOString()
+          : new Date().toISOString(),
+  };
+}
+
+function extractSearchResponse(body: unknown): { contacts: Record<string, unknown>[]; total: number; searchAfter: string[] | null } {
+  if (!body || typeof body !== "object") {
+    return { contacts: [], total: 0, searchAfter: null };
+  }
+
+  const record = body as Record<string, unknown>;
+  const contactsCandidate = record.contacts ?? record.data ?? record.items ?? record.results ?? [];
+  const contacts = Array.isArray(contactsCandidate)
+    ? contactsCandidate.filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    : [];
+
+  const totalCandidate = record.total ?? record.totalCount ?? record.paginationTotal ?? record.meta;
+  const total =
+    typeof totalCandidate === "number"
+      ? totalCandidate
+      : typeof totalCandidate === "object" && totalCandidate !== null && typeof (totalCandidate as Record<string, unknown>).total === "number"
+        ? (totalCandidate as Record<string, unknown>).total as number
+        : contacts.length;
+
+  const searchAfterCandidate = record.searchAfter ?? record.nextSearchAfter ?? record.nextCursor;
+  const searchAfter = Array.isArray(searchAfterCandidate)
+    ? searchAfterCandidate.filter((entry): entry is string => typeof entry === "string")
+    : null;
+
+  return { contacts, total, searchAfter };
+}
+
+export async function searchContacts(
+  locationId: string,
+  options: GHLSearchContactsOptions = {}
+): Promise<GHLContactsPage> {
+  const accessToken = await getValidAccessToken(locationId);
+  const pageLimit = options.pageLimit ?? 50;
+
+  const payload: Record<string, unknown> = {
+    locationId,
+    pageLimit,
+  };
+
+  if (options.query && options.query.trim().length > 0) {
+    payload.query = options.query.trim();
+  }
+
+  if (options.searchAfter && options.searchAfter.length > 0) {
+    payload.searchAfter = options.searchAfter;
+  }
+
+  const response = await fetch(`${GHL_BASE_URL}/contacts/search`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      Version: GHL_API_VERSION,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Failed to search contacts: ${response.status} ${errorBody}`);
+  }
+
+  const body = await response.json().catch(() => ({}));
+  const { contacts, total, searchAfter } = extractSearchResponse(body);
+  const normalized = contacts.map(normalizeContact);
+
+  const filtered = options.statusFilters && options.statusFilters.length > 0
+    ? normalized.filter((contact) => {
+        const matchedFilters = new Set(options.statusFilters);
+
+        return (
+          (matchedFilters.has("clicked") && contact.smsStatus === "Clicked") ||
+          (matchedFilters.has("dnc") && contact.smsStatus === "Do Not Contact") ||
+          (matchedFilters.has("stopped") && contact.smsStatus === "Finished")
+        );
+      })
+    : normalized;
+
+  return {
+    contacts: filtered,
+    pagination: {
+      total: options.statusFilters && options.statusFilters.length > 0 ? filtered.length : total,
+      searchAfter,
+      pageLimit,
+    },
   };
 }
 
@@ -160,13 +357,19 @@ export async function upsertInstallation(
 export async function getInstallation(
   locationId: string
 ): Promise<GHLInstallation | undefined> {
+  const normalizedLocationId = locationId.trim();
   const db = await getDb();
   if (!db) return undefined;
 
   const result = await db
     .select()
     .from(ghlInstallations)
-    .where(eq(ghlInstallations.locationId, locationId))
+    .where(
+      or(
+        eq(ghlInstallations.locationId, normalizedLocationId),
+        eq(ghlInstallations.companyId, normalizedLocationId)
+      )
+    )
     .limit(1);
 
   return result.length > 0 ? result[0] : undefined;
