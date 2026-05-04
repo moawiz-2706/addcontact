@@ -73,6 +73,18 @@ export interface GHLContactsPage {
   };
 }
 
+export interface GHLMessagingContext {
+  ownerFirstName: string;
+  ownerLastName: string;
+  businessName: string;
+  businessId: string;
+  companyId: string;
+  businessImageUrl: string;
+  customMessage: string;
+  personalizedImageEnabled: boolean;
+  personalizedImageUrl: string;
+}
+
 export interface GHLSearchContactsOptions {
   query?: string;
   pageLimit?: number;
@@ -81,6 +93,63 @@ export interface GHLSearchContactsOptions {
 }
 
 const REVIEW_WORKFLOW_NAMES = ["01. Review Reactivation", "02. Review Request"];
+const MESSAGING_CUSTOM_KEYS = {
+  personalizedImageUrl: "nifty_personalized_image_url",
+  businessImageUrl: "business_image_url",
+  customMessage: "review_request_message",
+  personalizedImageEnabled: "personalized_image_enabled",
+} as const;
+
+function matchesCustomKey(apiKey: string, configKey: string): boolean {
+  const normalize = (value: string) => value.toLowerCase().replace(/[\s-]/g, "_");
+  return normalize(apiKey) === normalize(configKey) || normalize(apiKey) === `contact.${normalize(configKey)}` || apiKey === configKey;
+}
+
+function getCustomValueMap(customValues: Record<string, unknown>[]): Map<string, { id: string; value: string }> {
+  const map = new Map<string, { id: string; value: string }>();
+
+  for (const customValue of customValues) {
+    const key = typeof customValue.fieldKey === "string" ? customValue.fieldKey : typeof customValue.name === "string" ? customValue.name : "";
+    const id = typeof customValue.id === "string" ? customValue.id : "";
+    const value = typeof customValue.value === "string" ? customValue.value : "";
+
+    if (!key || !id) continue;
+    map.set(key, { id, value });
+  }
+
+  return map;
+}
+
+async function getAccessTokenAndInstallation(locationId: string) {
+  const installation = await getInstallation(locationId);
+  if (!installation) {
+    throw new Error(`No GHL installation found for location: ${locationId}`);
+  }
+
+  return {
+    installation,
+    accessToken: await getValidAccessToken(locationId),
+  };
+}
+
+async function fetchJson<T>(url: string, accessToken: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...(init.headers ?? {}),
+      Authorization: `Bearer ${accessToken}`,
+      Version: GHL_API_VERSION,
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`GHL request failed: ${response.status} ${errorBody}`);
+  }
+
+  return response.json() as Promise<T>;
+}
 
 function toStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -247,6 +316,230 @@ export async function searchContacts(
       pageLimit,
     },
   };
+}
+
+export async function getMessagingContext(locationId: string): Promise<GHLMessagingContext> {
+  const { accessToken } = await getAccessTokenAndInstallation(locationId);
+
+  const [locationResponse, businessesResponse, customValuesResponse] = await Promise.all([
+    fetchJson<Record<string, unknown> | { location?: Record<string, unknown> }>(
+      `${GHL_BASE_URL}/locations/${encodeURIComponent(locationId)}`,
+      accessToken,
+      { method: "GET" }
+    ),
+    fetchJson<{ businesses?: Record<string, unknown>[] }>(
+      `${GHL_BASE_URL}/businesses/?locationId=${encodeURIComponent(locationId)}`,
+      accessToken,
+      { method: "GET" }
+    ),
+    fetchJson<{ customValues?: Record<string, unknown>[] }>(
+      `${GHL_BASE_URL}/locations/${encodeURIComponent(locationId)}/customValues`,
+      accessToken,
+      { method: "GET" }
+    ),
+  ]);
+
+  const location = "location" in locationResponse ? locationResponse.location ?? {} : locationResponse;
+  const business = businessesResponse.businesses?.[0] ?? {};
+  const customValues = customValuesResponse.customValues ?? [];
+  const customValueMap = getCustomValueMap(customValues);
+
+  const getCustomValue = (key: string) => {
+    for (const [apiKey, entry] of customValueMap.entries()) {
+      if (matchesCustomKey(apiKey, key)) return entry.value;
+    }
+    return "";
+  };
+
+  const ownerFirstName = typeof (location.prospectInfo as Record<string, unknown> | undefined)?.firstName === "string"
+    ? String((location.prospectInfo as Record<string, unknown>).firstName)
+    : typeof location.firstName === "string"
+      ? String(location.firstName)
+      : "";
+
+  const ownerLastName = typeof (location.prospectInfo as Record<string, unknown> | undefined)?.lastName === "string"
+    ? String((location.prospectInfo as Record<string, unknown>).lastName)
+    : typeof location.lastName === "string"
+      ? String(location.lastName)
+      : "";
+
+  const businessName = typeof business.name === "string" ? business.name : "";
+
+  return {
+    ownerFirstName,
+    ownerLastName,
+    businessName,
+    businessId: typeof business.id === "string" ? business.id : "",
+    companyId: typeof location.companyId === "string" ? location.companyId : "",
+    businessImageUrl: getCustomValue(MESSAGING_CUSTOM_KEYS.businessImageUrl),
+    customMessage: getCustomValue(MESSAGING_CUSTOM_KEYS.customMessage),
+    personalizedImageEnabled: (() => {
+      const value = getCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageEnabled);
+      return value === "true" || value === "1";
+    })(),
+    personalizedImageUrl: getCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageUrl),
+  };
+}
+
+export async function updateMessagingSettings(
+  locationId: string,
+  input: {
+    ownerFirstName: string;
+    ownerLastName?: string;
+    businessName: string;
+    businessId?: string;
+    companyId?: string;
+    customMessage: string;
+    personalizedImageEnabled: boolean;
+    businessImageUrl: string;
+  }
+): Promise<void> {
+  const { accessToken } = await getAccessTokenAndInstallation(locationId);
+
+  const context = await getMessagingContext(locationId);
+  const nextBusinessId = input.businessId || context.businessId;
+
+  if (input.ownerFirstName !== context.ownerFirstName || (input.ownerLastName ?? "") !== context.ownerLastName) {
+    const locationBody: Record<string, unknown> = {
+      prospectInfo: {
+        firstName: input.ownerFirstName,
+        lastName: input.ownerLastName ?? "",
+      },
+    };
+
+    if (input.companyId || context.companyId) {
+      locationBody.companyId = input.companyId || context.companyId;
+    }
+
+    const response = await fetch(`${GHL_BASE_URL}/locations/${encodeURIComponent(locationId)}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        Version: GHL_API_VERSION,
+      },
+      body: JSON.stringify(locationBody),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Failed to update location: ${response.status} ${errorBody}`);
+    }
+  }
+
+  if (input.businessName !== context.businessName) {
+    if (nextBusinessId) {
+      const response = await fetch(`${GHL_BASE_URL}/businesses/${encodeURIComponent(nextBusinessId)}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+          Version: GHL_API_VERSION,
+        },
+        body: JSON.stringify({ name: input.businessName }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Failed to update business: ${response.status} ${errorBody}`);
+      }
+    } else {
+      const response = await fetch(`${GHL_BASE_URL}/businesses/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+          Version: GHL_API_VERSION,
+        },
+        body: JSON.stringify({ name: input.businessName, locationId }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Failed to create business: ${response.status} ${errorBody}`);
+      }
+    }
+  }
+
+  const customValuesResponse = await fetchJson<{ customValues?: Record<string, unknown>[] }>(
+    `${GHL_BASE_URL}/locations/${encodeURIComponent(locationId)}/customValues`,
+    accessToken,
+    { method: "GET" }
+  );
+
+  const customValues = customValuesResponse.customValues ?? [];
+  const customValueByKey = getCustomValueMap(customValues);
+  const upsertCustomValue = async (name: string, value: string) => {
+    let existingId: string | undefined;
+    for (const [apiKey, entry] of customValueByKey.entries()) {
+      if (matchesCustomKey(apiKey, name)) {
+        existingId = entry.id;
+        break;
+      }
+    }
+
+    const url = existingId
+      ? `${GHL_BASE_URL}/locations/${encodeURIComponent(locationId)}/customValues/${encodeURIComponent(existingId)}`
+      : `${GHL_BASE_URL}/locations/${encodeURIComponent(locationId)}/customValues`;
+
+    const response = await fetch(url, {
+      method: existingId ? "PUT" : "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        Version: GHL_API_VERSION,
+      },
+      body: JSON.stringify(existingId ? { name, value } : { name, value }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`Failed to save custom value ${name}: ${response.status} ${errorBody}`);
+    }
+  };
+
+  await Promise.all([
+    upsertCustomValue(MESSAGING_CUSTOM_KEYS.customMessage, input.customMessage || ""),
+    upsertCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageEnabled, input.personalizedImageEnabled ? "true" : "false"),
+    upsertCustomValue(MESSAGING_CUSTOM_KEYS.businessImageUrl, input.businessImageUrl || ""),
+    upsertCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageUrl, input.personalizedImageEnabled ? `${"https://img1.niftyimages.com/3qvh/bu47/vg6f"}?name={{contact.first_name}}` : ""),
+  ]);
+}
+
+export async function sendTestMessage(
+  locationId: string,
+  input: { contactId: string; message: string; attachmentUrl?: string }
+): Promise<void> {
+  const accessToken = await getValidAccessToken(locationId);
+  const body: Record<string, unknown> = {
+    type: "SMS",
+    contactId: input.contactId,
+    message: input.message,
+  };
+
+  if (input.attachmentUrl) {
+    body.attachments = [input.attachmentUrl];
+  }
+
+  const response = await fetch(`${GHL_BASE_URL}/conversations/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      Version: "2021-04-15",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Failed to send message: ${response.status} ${errorBody}`);
+  }
 }
 
 // ─── Token Exchange ──────────────────────────────────────────────────

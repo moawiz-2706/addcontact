@@ -7,11 +7,13 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import ContactsPage from "./pages/ContactsPage";
 import ContactsEntry from "./pages/ContactsEntry";
+import MessagingPage from "./pages/MessagingPage.tsx";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
+      <Route path={"/messaging"} component={MessagingPage} />
       <Route path={"/contacts"} component={ContactsEntry} />
       <Route path={"/"} component={Home} />
       <Route path={"/404"} component={NotFound} />

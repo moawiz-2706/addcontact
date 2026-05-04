@@ -16,6 +16,9 @@ import {
   getInstallation,
   getAllInstallations,
   searchContacts,
+  getMessagingContext,
+  updateMessagingSettings,
+  sendTestMessage,
   processContact,
   updateWorkflowId,
   getValidAccessToken,
@@ -45,6 +48,25 @@ const contactsQuerySchema = z.object({
   pageLimit: z.number().int().min(1).max(100).optional().default(25),
   searchAfter: z.array(z.string()).optional(),
   statusFilters: z.array(z.enum(["stopped", "clicked", "dnc"])).optional().default([]),
+});
+
+const messagingSettingsSchema = z.object({
+  locationId: z.string().min(1),
+  ownerFirstName: z.string().optional().default(""),
+  ownerLastName: z.string().optional().default(""),
+  businessName: z.string().optional().default(""),
+  businessId: z.string().optional().default(""),
+  companyId: z.string().optional().default(""),
+  customMessage: z.string().optional().default(""),
+  personalizedImageEnabled: z.boolean().optional().default(true),
+  businessImageUrl: z.string().optional().default(""),
+});
+
+const sendTestMessageSchema = z.object({
+  locationId: z.string().min(1),
+  contactId: z.string().min(1),
+  message: z.string().min(1),
+  attachmentUrl: z.string().optional(),
 });
 
 export const ghlRouter = router({
@@ -211,6 +233,50 @@ export const ghlRouter = router({
       });
 
       return result;
+    }),
+
+  /**
+   * Load the messaging page context from the installed GHL app token.
+   */
+  messagingContext: publicProcedure
+    .input(z.object({ locationId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      return getMessagingContext(input.locationId.trim());
+    }),
+
+  /**
+   * Persist messaging page settings through the installed GHL app token.
+   */
+  updateMessagingSettings: publicProcedure
+    .input(messagingSettingsSchema)
+    .mutation(async ({ input }) => {
+      await updateMessagingSettings(input.locationId.trim(), {
+        ownerFirstName: input.ownerFirstName.trim(),
+        ownerLastName: input.ownerLastName.trim(),
+        businessName: input.businessName.trim(),
+        businessId: input.businessId.trim() || undefined,
+        companyId: input.companyId.trim() || undefined,
+        customMessage: input.customMessage,
+        personalizedImageEnabled: input.personalizedImageEnabled,
+        businessImageUrl: input.businessImageUrl,
+      });
+
+      return { success: true };
+    }),
+
+  /**
+   * Send the messaging page test SMS through the installed GHL app token.
+   */
+  sendTestMessage: publicProcedure
+    .input(sendTestMessageSchema)
+    .mutation(async ({ input }) => {
+      await sendTestMessage(input.locationId.trim(), {
+        contactId: input.contactId.trim(),
+        message: input.message,
+        attachmentUrl: input.attachmentUrl?.trim() || undefined,
+      });
+
+      return { success: true };
     }),
 
   /**
