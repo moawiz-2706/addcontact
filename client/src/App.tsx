@@ -8,11 +8,13 @@ import Home from "./pages/Home";
 import ContactsPage from "./pages/ContactsPage";
 import ContactsEntry from "./pages/ContactsEntry";
 import MessagingPage from "./pages/MessagingPage.tsx";
+import RequestScheduling from "./pages/RequestScheduling";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
+      <Route path={"/request-scheduling"} component={RequestScheduling} />
       <Route path={"/messaging"} component={MessagingPage} />
       <Route path={"/contacts"} component={ContactsEntry} />
       <Route path={"/"} component={Home} />
