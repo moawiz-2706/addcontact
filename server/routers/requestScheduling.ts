@@ -1,8 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { publicProcedure, router } from "../_core/trpc";
-import { ENV } from "../_core/env";
 import { getLocationAccessToken } from "../helpers/tokenHelper";
+import { getCustomFieldIdByName } from "../ghl-service";
 
 const TIMING_MAP = {
   0: "within_24h",
@@ -26,18 +26,34 @@ function ghlHeaders(accessToken: string) {
   };
 }
 
-function getRequiredFieldIds() {
-  if (!ENV.ghlInitialDelayFieldId || !ENV.ghlFollowUpLimitFieldId) {
+/**
+ * Discover custom field IDs for a location by name.
+ * These field IDs are generic across subaccounts and are discovered at runtime.
+ */
+async function getRequestSchedulingFieldIds(locationId: string): Promise<{
+  initialDelayFieldId: string;
+  followUpLimitFieldId: string;
+}> {
+  const initialDelayFieldId = await getCustomFieldIdByName(locationId, "initial_request_delay");
+  const followUpLimitFieldId = await getCustomFieldIdByName(locationId, "follow_up_limit");
+
+  if (!initialDelayFieldId) {
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
-      message:
-        "Request scheduling field IDs are not configured. Set GHL_INITIAL_DELAY_FIELD_ID and GHL_FOLLOW_UP_LIMIT_FIELD_ID.",
+      message: "Custom field 'initial_request_delay' not found in your GHL account. Please create this field in Settings > Custom Fields.",
+    });
+  }
+
+  if (!followUpLimitFieldId) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Custom field 'follow_up_limit' not found in your GHL account. Please create this field in Settings > Custom Fields.",
     });
   }
 
   return {
-    initialDelayFieldId: ENV.ghlInitialDelayFieldId,
-    followUpLimitFieldId: ENV.ghlFollowUpLimitFieldId,
+    initialDelayFieldId,
+    followUpLimitFieldId,
   };
 }
 
@@ -99,7 +115,7 @@ export const requestSchedulingRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const { initialDelayFieldId, followUpLimitFieldId } = getRequiredFieldIds();
+      const { initialDelayFieldId, followUpLimitFieldId } = await getRequestSchedulingFieldIds(input.locationId.trim());
       const accessToken = await getLocationAccessToken(input.locationId.trim());
       const contactId = input.contactId.trim();
 

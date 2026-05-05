@@ -540,6 +540,115 @@ export async function sendTestMessage(
   }
 }
 
+// ─── Custom Field Discovery ──────────────────────────────────────────
+
+// In-memory cache for custom field lookups (fieldKey -> fieldId) per location
+// Keyed by locationId
+const customFieldCache = new Map<string, Map<string, string>>();
+
+/**
+ * Normalize a field name for comparison.
+ * Converts to lowercase and replaces spaces/hyphens with underscores.
+ */
+function normalizeFieldName(name: string): string {
+  return name.toLowerCase().replace(/[\s\-]/g, "_");
+}
+
+/**
+ * Fetch all custom fields for a location from GHL API.
+ * Used internally by getCustomFieldIdByName.
+ */
+async function fetchLocationCustomFields(
+  locationId: string,
+  accessToken: string
+): Promise<Array<{ id: string; fieldKey: string; displayName?: string }>> {
+  // GHL API endpoint to list custom fields for a location
+  const response = await fetch(
+    `${GHL_BASE_URL}/locations/${encodeURIComponent(locationId)}/custom-fields`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        Version: GHL_API_VERSION,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error(`[GHL] Failed to fetch custom fields: ${response.status} ${errorBody}`);
+    return [];
+  }
+
+  const data = (await response.json()) as Record<string, unknown>;
+  const fieldsArray = Array.isArray(data.customFields) ? data.customFields : data.fields ?? [];
+
+  return fieldsArray
+    .filter((field): field is Record<string, unknown> => !!field && typeof field === "object")
+    .map((field) => ({
+      id: typeof field.id === "string" ? field.id : "",
+      fieldKey: typeof field.fieldKey === "string" ? field.fieldKey : typeof field.name === "string" ? field.name : "",
+      displayName: typeof field.displayName === "string" ? field.displayName : typeof field.name === "string" ? field.name : "",
+    }))
+    .filter((field) => field.id && field.fieldKey);
+}
+
+/**
+ * Get a custom field ID by searching for a field with a matching name.
+ * Uses in-memory cache per location to minimize API calls.
+ *
+ * @param locationId - The GHL location ID
+ * @param fieldNamePattern - The field name or key to search for (e.g., "initial_request_delay")
+ * @returns The field ID if found, or null if not found
+ */
+export async function getCustomFieldIdByName(
+  locationId: string,
+  fieldNamePattern: string
+): Promise<string | null> {
+  const normalizedPattern = normalizeFieldName(fieldNamePattern);
+
+  // Check cache first
+  if (customFieldCache.has(locationId)) {
+    const cachedFields = customFieldCache.get(locationId);
+    if (cachedFields && cachedFields.has(normalizedPattern)) {
+      return cachedFields.get(normalizedPattern) ?? null;
+    }
+  }
+
+  try {
+    const accessToken = await getValidAccessToken(locationId);
+    const fields = await fetchLocationCustomFields(locationId, accessToken);
+
+    // Build and cache the field map for this location
+    const fieldMap = new Map<string, string>();
+    for (const field of fields) {
+      const normalized = normalizeFieldName(field.fieldKey);
+      fieldMap.set(normalized, field.id);
+    }
+
+    customFieldCache.set(locationId, fieldMap);
+
+    // Return the requested field
+    return fieldMap.get(normalizedPattern) ?? null;
+  } catch (error) {
+    console.error(`[GHL] Error discovering custom field "${fieldNamePattern}":`, error);
+    return null;
+  }
+}
+
+/**
+ * Clear the custom field cache for a location.
+ * Useful when custom fields are modified in GHL.
+ */
+export function clearCustomFieldCache(locationId?: string): void {
+  if (locationId) {
+    customFieldCache.delete(locationId);
+  } else {
+    customFieldCache.clear();
+  }
+}
+
 // ─── Token Exchange ──────────────────────────────────────────────────
 
 /**

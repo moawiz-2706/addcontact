@@ -10,6 +10,4 @@ export const ENV = {
   // GHL Marketplace OAuth
   ghlClientId: process.env.GHL_CLIENT_ID ?? "",
   ghlClientSecret: process.env.GHL_CLIENT_SECRET ?? "",
-  ghlInitialDelayFieldId: process.env.GHL_INITIAL_DELAY_FIELD_ID ?? "",
-  ghlFollowUpLimitFieldId: process.env.GHL_FOLLOW_UP_LIMIT_FIELD_ID ?? "",
 };
