@@ -79,7 +79,7 @@ export interface GHLMessagingContext {
   businessName: string;
   businessId: string;
   companyId: string;
-  businessImageUrl: string;
+  personalizedImageBaseUrl: string;
   customMessage: string;
   personalizedImageEnabled: boolean;
   personalizedImageUrl: string;
@@ -94,8 +94,7 @@ export interface GHLSearchContactsOptions {
 
 const REVIEW_WORKFLOW_NAMES = ["01. Review Reactivation", "02. Review Request"];
 const MESSAGING_CUSTOM_KEYS = {
-  personalizedImageUrl: "nifty_personalized_image_url",
-  businessImageUrl: "business_image_url",
+  personalizedImageBaseUrl: "personalized_image_base_url",
   customMessage: "review_request_message",
   personalizedImageEnabled: "personalized_image_enabled",
 } as const;
@@ -371,13 +370,13 @@ export async function getMessagingContext(locationId: string): Promise<GHLMessag
     businessName,
     businessId: typeof business.id === "string" ? business.id : "",
     companyId: typeof location.companyId === "string" ? location.companyId : "",
-    businessImageUrl: getCustomValue(MESSAGING_CUSTOM_KEYS.businessImageUrl),
+    personalizedImageBaseUrl: getCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageBaseUrl),
     customMessage: getCustomValue(MESSAGING_CUSTOM_KEYS.customMessage),
     personalizedImageEnabled: (() => {
       const value = getCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageEnabled);
       return value === "true" || value === "1";
     })(),
-    personalizedImageUrl: getCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageUrl),
+    personalizedImageUrl: "",
   };
 }
 
@@ -391,7 +390,7 @@ export async function updateMessagingSettings(
     companyId?: string;
     customMessage: string;
     personalizedImageEnabled: boolean;
-    businessImageUrl: string;
+    personalizedImageBaseUrl: string;
   }
 ): Promise<void> {
   const { accessToken } = await getAccessTokenAndInstallation(locationId);
@@ -505,8 +504,7 @@ export async function updateMessagingSettings(
   await Promise.all([
     upsertCustomValue(MESSAGING_CUSTOM_KEYS.customMessage, input.customMessage || ""),
     upsertCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageEnabled, input.personalizedImageEnabled ? "true" : "false"),
-    upsertCustomValue(MESSAGING_CUSTOM_KEYS.businessImageUrl, input.businessImageUrl || ""),
-    upsertCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageUrl, input.personalizedImageEnabled ? `${"https://img1.niftyimages.com/3qvh/bu47/vg6f"}?name={{contact.first_name}}` : ""),
+    upsertCustomValue(MESSAGING_CUSTOM_KEYS.personalizedImageBaseUrl, input.personalizedImageBaseUrl || ""),
   ]);
 }
 

@@ -59,7 +59,7 @@ const messagingSettingsSchema = z.object({
   companyId: z.string().optional().default(""),
   customMessage: z.string().optional().default(""),
   personalizedImageEnabled: z.boolean().optional().default(true),
-  businessImageUrl: z.string().optional().default(""),
+  personalizedImageBaseUrl: z.string().optional().default(""),
 });
 
 const sendTestMessageSchema = z.object({
@@ -258,7 +258,7 @@ export const ghlRouter = router({
         companyId: input.companyId.trim() || undefined,
         customMessage: input.customMessage,
         personalizedImageEnabled: input.personalizedImageEnabled,
-        businessImageUrl: input.businessImageUrl,
+        personalizedImageBaseUrl: input.personalizedImageBaseUrl,
       });
 
       return { success: true };

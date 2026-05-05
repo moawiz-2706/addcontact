@@ -12,6 +12,21 @@ type SelectedContact = {
   phone: string;
 };
 
+const DEFAULT_PERSONALIZED_IMAGE_URL = "https://img1.niftyimages.com/3qvh/bu47/vg6f";
+
+function buildPersonalizedImageUrl(baseUrl: string, contactName: string): string {
+  const urlText = baseUrl.trim() || DEFAULT_PERSONALIZED_IMAGE_URL;
+
+  try {
+    const url = new URL(urlText);
+    url.searchParams.set("name", contactName);
+    return url.toString();
+  } catch {
+    const separator = urlText.includes("?") ? "&" : "?";
+    return `${urlText}${separator}name=${encodeURIComponent(contactName)}`;
+  }
+}
+
 function useLocationId() {
   return useMemo(() => {
     const params = new URLSearchParams(window.location.search);
@@ -27,7 +42,7 @@ export default function MessagingPage() {
   const [ownerFirstName, setOwnerFirstName] = useState("");
   const [ownerLastName, setOwnerLastName] = useState("");
   const [businessName, setBusinessName] = useState("");
-  const [businessImageUrl, setBusinessImageUrl] = useState("");
+  const [personalizedImageBaseUrl, setPersonalizedImageBaseUrl] = useState("");
   const [customMessage, setCustomMessage] = useState("");
   const [personalizedImageEnabled, setPersonalizedImageEnabled] = useState(true);
 
@@ -41,7 +56,7 @@ export default function MessagingPage() {
     setOwnerFirstName(ctx.ownerFirstName || "");
     setOwnerLastName(ctx.ownerLastName || "");
     setBusinessName(ctx.businessName || "");
-    setBusinessImageUrl(ctx.businessImageUrl || "");
+    setPersonalizedImageBaseUrl(ctx.personalizedImageBaseUrl || "");
     setCustomMessage(ctx.customMessage || "");
     setPersonalizedImageEnabled(ctx.personalizedImageEnabled);
   }, [messagingContextQuery.data]);
@@ -62,7 +77,7 @@ export default function MessagingPage() {
     undefined;
 
   const imageName = selectedContact?.firstName || ownerFirstName || "Jessica";
-  const imageUrl = `https://img1.niftyimages.com/3qvh/bu47/vg6f?name=${encodeURIComponent(imageName)}`;
+  const imageUrl = buildPersonalizedImageUrl(personalizedImageBaseUrl, imageName);
 
   const currentMessage = customMessage
     ? customMessage
@@ -84,7 +99,7 @@ export default function MessagingPage() {
       companyId: messagingContextQuery.data?.companyId || "",
       customMessage,
       personalizedImageEnabled,
-      businessImageUrl,
+      personalizedImageBaseUrl,
     });
     await messagingContextQuery.refetch();
   };
@@ -95,7 +110,7 @@ export default function MessagingPage() {
       locationId,
       contactId: selectedContact.id,
       message: currentMessage,
-      attachmentUrl: personalizedImageEnabled ? imageUrl : businessImageUrl || undefined,
+      attachmentUrl: personalizedImageEnabled ? imageUrl : undefined,
     });
   };
 
@@ -229,8 +244,8 @@ export default function MessagingPage() {
                 <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
               </div>
               <div className="sm:col-span-2">
-                <label className="text-sm font-medium text-foreground mb-1 block">Business Image URL</label>
-                <Input value={businessImageUrl} onChange={(e) => setBusinessImageUrl(e.target.value)} placeholder="https://..." />
+                <label className="text-sm font-medium text-foreground mb-1 block">Personalized Image Base URL</label>
+                <Input value={personalizedImageBaseUrl} onChange={(e) => setPersonalizedImageBaseUrl(e.target.value)} placeholder="https://..." />
               </div>
               <div className="sm:col-span-2">
                 <label className="text-sm font-medium text-foreground mb-1 block">Custom Message</label>
