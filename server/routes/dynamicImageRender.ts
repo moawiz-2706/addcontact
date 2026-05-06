@@ -36,8 +36,9 @@ function readOverlayConfig(req: Request): OverlayConfig {
 }
 
 export function registerDynamicImageRenderRoute(app: Express) {
-  app.get("/api/dynamic-image/:key", async (req: Request, res: Response) => {
-    const key = req.params.key;
+  app.get("/api/dynamic-image/*", async (req: Request, res: Response) => {
+    const rawKey = (req.params as Record<string, string>)[0] ?? "";
+    const key = rawKey ? decodeURIComponent(rawKey) : "";
     const name = typeof req.query.name === "string" && req.query.name.trim().length > 0 ? req.query.name.trim() : "";
 
     if (!key) {
