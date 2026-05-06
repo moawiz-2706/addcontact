@@ -95,6 +95,7 @@ export const dynamicImageRouter = router({
     )
     .mutation(async ({ input }) => {
       try {
+        const startedAt = Date.now();
         const locationId = input.locationId.trim();
         const contactId = input.contactId?.trim() || "";
         const customFieldKey = input.customFieldKey.trim();
@@ -107,19 +108,11 @@ export const dynamicImageRouter = router({
           input.overlayConfig as OverlayConfig
         );
 
-        // 3. Upload base image to storage (for dynamic rendering)
-        const { url: baseImageUrl, key: baseImageKey } = await storagePut(
-          `dynamic-images/base`,
-          imageBuffer,
-          "image/png"
-        );
-
-        // 4. Upload composite preview to storage (for display)
-        const { url: previewUrl } = await storagePut(
-          `dynamic-images/preview`,
-          compositeBuffer,
-          "image/png"
-        );
+        // 3-4. Upload base image + preview in parallel for lower latency
+        const [{ url: baseImageUrl, key: baseImageKey }, { url: previewUrl }] = await Promise.all([
+          storagePut(`dynamic-images/base`, imageBuffer, "image/png"),
+          storagePut(`dynamic-images/preview`, compositeBuffer, "image/png"),
+        ]);
 
         // 5. Build dynamic URL template
         // The base URL uses the storage key; client appends ?name=VALUE
@@ -166,6 +159,8 @@ export const dynamicImageRouter = router({
             });
           }
         }
+
+        console.log(`[dynamicImage.saveAndUpdateContact] completed in ${Date.now() - startedAt}ms (contactSync=${Boolean(contactId)})`);
 
         return {
           success: true,

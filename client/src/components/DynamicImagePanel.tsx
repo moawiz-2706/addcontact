@@ -489,36 +489,38 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
               </select>
             </div>
 
-            {overlayConfig.positionType === "custom" && (
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                    X %
-                  </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={overlayConfig.xPercent}
-                    onChange={(e) => updateOverlayConfig("xPercent", Number(e.target.value))}
-                    className="h-7 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                    Y %
-                  </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={overlayConfig.yPercent}
-                    onChange={(e) => updateOverlayConfig("yPercent", Number(e.target.value))}
-                    className="h-7 text-xs"
-                  />
-                </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  X %
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={overlayConfig.xPercent}
+                  onChange={(e) => updateOverlayConfig("xPercent", Number(e.target.value))}
+                  className="h-7 text-xs"
+                />
               </div>
-            )}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Y %
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={overlayConfig.yPercent}
+                  onChange={(e) => updateOverlayConfig("yPercent", Number(e.target.value))}
+                  className="h-7 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-700">
+              Drag the text directly on preview. Current: X {overlayConfig.xPercent}% , Y {overlayConfig.yPercent}% , Size {overlayConfig.fontSize}px
+            </div>
           </div>
         )}
 

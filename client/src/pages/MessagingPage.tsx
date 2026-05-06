@@ -135,11 +135,10 @@ export default function MessagingPage() {
       });
       await messagingContextQuery.refetch();
       toast.success("Personalized image saved to messaging settings");
+      setShowImageModal(false);
     } catch (error) {
       console.error("Failed to auto-save image setting:", error);
-      toast.error("Image saved, but messaging settings could not be updated");
-    } finally {
-      setShowImageModal(false);
+      toast.error("Image template created, but settings update failed. Please click Update.");
     }
   };
 
