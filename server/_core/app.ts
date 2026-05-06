@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import multer from "multer";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import type { Express } from "express";
 import { registerOAuthRoutes } from "./oauth";
@@ -8,6 +9,19 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./vite";
+
+// Configure multer for file uploads (memory storage for direct Buffer access)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB max
+  fileFilter: (req, file, cb) => {
+    // Allow only image files
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only image files are allowed"));
+    }
+    cb(null, true);
+  },
+});
 
 export function createApp(options?: { serveClient?: boolean }): Express {
   const app = express();

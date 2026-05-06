@@ -3,6 +3,7 @@ import { AlertCircle, CheckCircle2, Link2, Loader2, RefreshCw, Search, Send, Set
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import DynamicImagePanel from "@/components/DynamicImagePanel";
 
 type SelectedContact = {
   id: string;
@@ -318,6 +319,10 @@ export default function MessagingPage() {
               </div>
             ) : null}
           </div>
+
+          {selectedContact && (
+            <DynamicImagePanel locationId={locationId} contactId={selectedContact.id} />
+          )}
         </section>
       </main>
     </div>

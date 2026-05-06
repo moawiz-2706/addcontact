@@ -4,6 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { ghlRouter } from "./routers/ghl";
 import { requestSchedulingRouter } from "./routers/requestScheduling";
+import { dynamicImageRouter } from "./routers/dynamicImage";
 
 export const appRouter = router({
   system: systemRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   // GHL Marketplace integration
   ghl: ghlRouter,
   requestScheduling: requestSchedulingRouter,
+  dynamicImage: dynamicImageRouter,
 });
 
 export type AppRouter = typeof appRouter;
