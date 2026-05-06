@@ -151,7 +151,7 @@ export default function MessagingPage() {
           </div>
           <h1 className="text-xl font-semibold text-foreground">Messaging</h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Add this page as a GHL custom menu link with the <code className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono">?locationId=YOUR_LOCATION_ID</code> parameter.
+            Add this page as a GHL custom menu link with the <code className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono">?locationId=YOUR_LOCATION_ID&amp;view=messaging</code> parameter, or open <code className="px-1.5 py-0.5 bg-muted rounded text-xs font-mono">/messaging?locationId=YOUR_LOCATION_ID</code> directly.
           </p>
         </div>
       </div>
