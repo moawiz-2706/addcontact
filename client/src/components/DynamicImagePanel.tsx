@@ -145,7 +145,7 @@ function DraggableTextOverlay({
 
 interface DynamicImagePanelProps {
   locationId: string;
-  contactId: string;
+  contactId?: string;
   onSaveUrl?: (url: string) => void; // Callback when URL is saved
   isModal?: boolean; // If true, includes close button and different styling
 }
@@ -179,6 +179,8 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     bgOpacity: 0,
     padding: 16,
   });
+
+  const hasContactId = Boolean(contactId && contactId.trim().length > 0);
 
   // Listen for resize events from DraggableTextOverlay
   useEffect(() => {
@@ -288,7 +290,7 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     }
 
     setSaving(true);
-    setSaveProgress("Uploading image...");
+    setSaveProgress(hasContactId ? "Uploading image..." : "Uploading image template...");
     setError(null);
 
     try {
@@ -296,7 +298,7 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
       const responsePromise = saveAndUpdateMutation.mutateAsync({
         imageBase64: base64,
         locationId,
-        contactId,
+        contactId: contactId || "",
         sampleName,
         customFieldKey: "dynamic_image_url",
         overlayConfig,
@@ -308,7 +310,7 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
       setSaveProgress("Finalizing...");
 
       setResult(response);
-      toast.success("Image saved and URL written to contact!");
+      toast.success(hasContactId ? "Image saved and URL written to contact!" : "Image saved and template ready!");
       setSaveProgress(null);
       
       // Call callback if provided (for modal use)
@@ -555,6 +557,13 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
           </div>
         )}
 
+        {saveProgress ? (
+          <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <span>{saveProgress}</span>
+          </div>
+        ) : null}
+
         {/* Save Button */}
         <Button
           onClick={handleSave}
@@ -616,6 +625,10 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
             )}
           </div>
         )}
+
+        <p className="mb-3 text-[11px] text-muted-foreground">
+          Drag the text box directly on the preview. Use the corner handle to resize. Saving works even without a selected contact; if a contact is selected, the URL is also synced there.
+        </p>
       </div>
     </div>
   );

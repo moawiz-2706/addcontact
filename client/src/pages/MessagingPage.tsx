@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import DynamicImagePanel from "@/components/DynamicImagePanel";
+import { toast } from "sonner";
 
 type SelectedContact = {
   id: string;
@@ -117,9 +118,29 @@ export default function MessagingPage() {
     });
   };
 
-  const handleImageSave = (url: string) => {
+  const handleImageSave = async (url: string) => {
     setPersonalizedImageBaseUrl(url);
-    setShowImageModal(false);
+
+    try {
+      await saveMutation.mutateAsync({
+        locationId,
+        ownerFirstName,
+        ownerLastName,
+        businessName,
+        businessId: messagingContextQuery.data?.businessId || "",
+        companyId: messagingContextQuery.data?.companyId || "",
+        customMessage,
+        personalizedImageEnabled,
+        personalizedImageBaseUrl: url,
+      });
+      await messagingContextQuery.refetch();
+      toast.success("Personalized image saved to messaging settings");
+    } catch (error) {
+      console.error("Failed to auto-save image setting:", error);
+      toast.error("Image saved, but messaging settings could not be updated");
+    } finally {
+      setShowImageModal(false);
+    }
   };
 
   if (!locationId) {

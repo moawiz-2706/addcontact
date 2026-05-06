@@ -87,7 +87,7 @@ export const dynamicImageRouter = router({
       z.object({
         imageBase64: z.string().min(100), // base64-encoded image
         locationId: z.string().min(1),
-        contactId: z.string().min(1),
+        contactId: z.string().min(1).optional(),
         sampleName: z.string().min(1).max(100),
         customFieldKey: z.string().min(1), // e.g., "dynamic_image_url"
         overlayConfig: overlayConfigSchema.optional(),
@@ -96,11 +96,8 @@ export const dynamicImageRouter = router({
     .mutation(async ({ input }) => {
       try {
         const locationId = input.locationId.trim();
-        const contactId = input.contactId.trim();
+        const contactId = input.contactId?.trim() || "";
         const customFieldKey = input.customFieldKey.trim();
-
-        // 1. Get access token
-        const accessToken = await getValidAccessToken(locationId);
 
         // 2. Composite the base image
         const imageBuffer = Buffer.from(input.imageBase64, "base64");
@@ -124,48 +121,50 @@ export const dynamicImageRouter = router({
           "image/png"
         );
 
-        // 5. Discover custom field ID by name
-        const fieldId = await getCustomFieldIdByName(locationId, customFieldKey);
-        if (!fieldId) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: `Custom field "${customFieldKey}" not found in your GHL account. Please create this field in Settings > Custom Fields.`,
-          });
-        }
-
-        // 6. Build dynamic URL template
+        // 5. Build dynamic URL template
         // The base URL uses the storage key; client appends ?name=VALUE
         const dynamicUrlTemplate = `${baseImageUrl}?name=`;
 
-        // 7. Update GHL contact custom field with dynamic URL
-        const ghlResponse = await fetch(
-          `https://services.leadconnectorhq.com/contacts/${encodeURIComponent(contactId)}`,
-          {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-              Version: "2023-02-21",
-            },
-            body: JSON.stringify({
-              customFields: [
-                {
-                  id: fieldId,
-                  key: `contact.${customFieldKey}`,
-                  field_value: dynamicUrlTemplate,
-                },
-              ],
-            }),
+        // 6. Optionally update the selected contact custom field
+        if (contactId) {
+          const accessToken = await getValidAccessToken(locationId);
+          const fieldId = await getCustomFieldIdByName(locationId, customFieldKey);
+          if (!fieldId) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: `Custom field "${customFieldKey}" not found in your GHL account. Please create this field in Settings > Custom Fields.`,
+            });
           }
-        );
 
-        if (!ghlResponse.ok) {
-          const errorBody = await ghlResponse.text();
-          console.error("[dynamicImage] GHL update failed:", errorBody);
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Failed to update GHL contact: ${ghlResponse.status}`,
-          });
+          const ghlResponse = await fetch(
+            `https://services.leadconnectorhq.com/contacts/${encodeURIComponent(contactId)}`,
+            {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json",
+                Version: "2023-02-21",
+              },
+              body: JSON.stringify({
+                customFields: [
+                  {
+                    id: fieldId,
+                    key: `contact.${customFieldKey}`,
+                    field_value: dynamicUrlTemplate,
+                  },
+                ],
+              }),
+            }
+          );
+
+          if (!ghlResponse.ok) {
+            const errorBody = await ghlResponse.text();
+            console.error("[dynamicImage] GHL update failed:", errorBody);
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Failed to update GHL contact: ${ghlResponse.status}`,
+            });
+          }
         }
 
         return {
