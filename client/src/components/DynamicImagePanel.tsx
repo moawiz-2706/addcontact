@@ -5,6 +5,144 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
+// Inline draggable overlay component for instant positioning (client-side)
+function DraggableTextOverlay({
+  sampleName,
+  overlayConfig,
+  onUpdatePosition,
+  onDragEnd,
+  onResizeEnd,
+  setDraggingOverlay,
+}: {
+  sampleName: string;
+  overlayConfig: any;
+  onUpdatePosition: (xPercent: number, yPercent: number) => void;
+  onDragEnd?: () => void;
+  onResizeEnd?: () => void;
+  setDraggingOverlay: (v: boolean) => void;
+}) {
+  const elRef = useRef<HTMLDivElement | null>(null);
+  const resizeRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el) return;
+
+    let dragging = false;
+
+    const onPointerDown = (e: PointerEvent) => {
+      // Only start drag when pointer down on overlay itself (not resize handle)
+      if ((e.target as Element) === resizeRef.current) return;
+      dragging = true;
+      setDraggingOverlay(true);
+      try {
+        (e.target as Element).setPointerCapture((e as any).pointerId);
+      } catch {}
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!dragging) return;
+      const container = el.parentElement as HTMLElement;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      onUpdatePosition(Math.round(x * 100), Math.round(y * 100));
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      setDraggingOverlay(false);
+      try {
+        (e.target as Element).releasePointerCapture((e as any).pointerId);
+      } catch {}
+      // Notify parent that drag ended so server preview can be refreshed
+      onDragEnd?.();
+    };
+
+    el.addEventListener("pointerdown", onPointerDown as any);
+    window.addEventListener("pointermove", onPointerMove as any);
+    window.addEventListener("pointerup", onPointerUp as any);
+
+    return () => {
+      el.removeEventListener("pointerdown", onPointerDown as any);
+      window.removeEventListener("pointermove", onPointerMove as any);
+      window.removeEventListener("pointerup", onPointerUp as any);
+    };
+  }, [onUpdatePosition, setDraggingOverlay]);
+
+  const left = `${overlayConfig.xPercent}%`;
+  const top = `${overlayConfig.yPercent}%`;
+
+  return (
+    <div ref={elRef} style={{ position: "absolute", left: left, top: top, transform: "translate(-50%, -50%)", pointerEvents: "auto" }}>
+      <div
+        className="select-none cursor-move relative"
+        style={{
+          fontSize: overlayConfig.fontSize,
+          color: overlayConfig.fontColor,
+          fontWeight: overlayConfig.fontWeight,
+          padding: overlayConfig.padding,
+          background: overlayConfig.bgOpacity ? overlayConfig.bgColor : "rgba(0,0,0,0.18)",
+          opacity: overlayConfig.bgOpacity ? overlayConfig.bgOpacity : 1,
+          whiteSpace: "nowrap",
+          border: "1px dashed rgba(255,255,255,0.6)",
+          borderRadius: 6,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+        }}
+      >
+        {sampleName}
+
+        {/* Resize handle */}
+        <div
+          ref={resizeRef}
+          data-resize-handle
+          style={{
+            position: "absolute",
+            right: 4,
+            bottom: 4,
+            width: 12,
+            height: 12,
+            background: "white",
+            border: "1px solid rgba(0,0,0,0.2)",
+            borderRadius: 2,
+            cursor: "nwse-resize",
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            const startY = (e as PointerEvent).clientY;
+            const startX = (e as PointerEvent).clientX;
+            const startSize = overlayConfig.fontSize;
+            setDraggingOverlay(true);
+
+            const onMove = (ev: PointerEvent) => {
+              const dy = ev.clientY - startY;
+              const dx = ev.clientX - startX;
+              const delta = Math.round((dx + -dy) / 2);
+              const newSize = Math.max(12, startSize + delta);
+              onUpdatePosition(overlayConfig.xPercent, overlayConfig.yPercent); // keep position
+              // update font size live by calling parent update (via custom event)
+              const evt = new CustomEvent("overlay:resize", { detail: { size: newSize } });
+              window.dispatchEvent(evt);
+            };
+
+            const onUp = () => {
+              setDraggingOverlay(false);
+              window.removeEventListener("pointermove", onMove as any);
+              window.removeEventListener("pointerup", onUp as any);
+              onResizeEnd?.();
+            };
+
+            window.addEventListener("pointermove", onMove as any);
+            window.addEventListener("pointerup", onUp as any);
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 interface DynamicImagePanelProps {
   locationId: string;
   contactId: string;
@@ -15,6 +153,7 @@ interface DynamicImagePanelProps {
 export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, isModal = false }: DynamicImagePanelProps) {
   const [file, setFile] = useState<File | null>(null);
   const [previewBase64, setPreviewBase64] = useState<string | null>(null);
+  const [fileBase64, setFileBase64] = useState<string | null>(null);
   const [sampleName, setSampleName] = useState("Alice");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -25,7 +164,9 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [draggingOverlay, setDraggingOverlay] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveProgress, setSaveProgress] = useState<string | null>(null);
 
   const [overlayConfig, setOverlayConfig] = useState({
     fontSize: 72,
@@ -38,6 +179,18 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     bgOpacity: 0,
     padding: 16,
   });
+
+  // Listen for resize events from DraggableTextOverlay
+  useEffect(() => {
+    const onResize = (e: any) => {
+      const size = e.detail?.size;
+      if (typeof size === "number") {
+        setOverlayConfig((prev) => ({ ...prev, fontSize: size }));
+      }
+    };
+    window.addEventListener("overlay:resize", onResize as EventListener);
+    return () => window.removeEventListener("overlay:resize", onResize as EventListener);
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewMutationQuery = trpc.dynamicImage.previewComposite.useMutation();
@@ -66,21 +219,31 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     setFile(f);
     setResult(null);
 
-    // Immediately show preview with sample name
-    await refreshPreview(f, sampleName);
+    // Cache file base64 to avoid re-reading on save
+    try {
+      const b64 = await fileToBase64(f);
+      setFileBase64(b64);
+      // Immediately show preview with sample name
+      await refreshPreview(f, sampleName, b64);
+    } catch (err) {
+      console.error("File read error:", err);
+      setError("Failed to read file");
+    }
   };
 
   // Refresh preview when config changes
   const refreshPreview = useCallback(
-    async (imageFile?: File, name?: string) => {
+    async (imageFile?: File, name?: string, cachedFileBase64?: string) => {
       const currentFile = imageFile || file;
       const currentName = name || sampleName;
 
       if (!currentFile) return;
 
+      // Prefer cached base64 when available
+      const base64 = cachedFileBase64 || fileBase64 || (await fileToBase64(currentFile));
+
       setLoading(true);
       try {
-        const base64 = await fileToBase64(currentFile);
         const response = await previewMutationQuery.mutateAsync({
           imageBase64: base64,
           name: currentName,
@@ -94,16 +257,28 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
         setLoading(false);
       }
     },
-    [file, sampleName, overlayConfig, previewMutationQuery]
+    [file, sampleName, overlayConfig, previewMutationQuery, fileBase64]
   );
 
   // Debounced preview update
   useEffect(() => {
+    // Only schedule server preview when not actively dragging overlay
+    if (draggingOverlay) return;
+
     const timer = setTimeout(() => {
       refreshPreview();
     }, 500);
     return () => clearTimeout(timer);
-  }, [sampleName, overlayConfig, refreshPreview]);
+  }, [sampleName, overlayConfig, refreshPreview, draggingOverlay]);
+
+  // Trigger server preview when drag/resize ends
+  const handleDragEnd = useCallback(() => {
+    refreshPreview(undefined, undefined);
+  }, [refreshPreview]);
+
+  const handleResizeEnd = useCallback(() => {
+    refreshPreview(undefined, undefined);
+  }, [refreshPreview]);
 
   // Handle save
   const handleSave = async () => {
@@ -113,11 +288,12 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     }
 
     setSaving(true);
+    setSaveProgress("Uploading image...");
     setError(null);
 
     try {
-      const base64 = await fileToBase64(file);
-      const response = await saveAndUpdateMutation.mutateAsync({
+      const base64 = fileBase64 || (await fileToBase64(file));
+      const responsePromise = saveAndUpdateMutation.mutateAsync({
         imageBase64: base64,
         locationId,
         contactId,
@@ -126,8 +302,14 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
         overlayConfig,
       });
 
+      // show interim progress
+      setTimeout(() => setSaveProgress("Compositing image..."), 500);
+      const response = await responsePromise;
+      setSaveProgress("Finalizing...");
+
       setResult(response);
       toast.success("Image saved and URL written to contact!");
+      setSaveProgress(null);
       
       // Call callback if provided (for modal use)
       if (onSaveUrl) {
@@ -138,6 +320,7 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
       const message = err?.data?.code === "NOT_FOUND" ? err.message : "Failed to save image";
       setError(message);
       toast.error(message);
+      setSaveProgress(null);
     } finally {
       setSaving(false);
     }
@@ -343,11 +526,32 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
             <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1">
               Live Preview {loading && <Loader2 className="w-3 h-3 animate-spin" />}
             </p>
-            <img
-              src={`data:image/png;base64,${previewBase64}`}
-              alt="Live preview"
-              className="w-full max-h-48 object-contain rounded"
-            />
+            <div className="w-full max-h-48 rounded relative overflow-hidden bg-black/5">
+              <img
+                src={`data:image/png;base64,${previewBase64}`}
+                alt="Live preview"
+                className="w-full max-h-48 object-contain"
+                draggable={false}
+              />
+
+              {/* Client-side draggable overlay for instant positioning */}
+              <div
+                className="absolute left-0 top-0 w-full h-full pointer-events-none"
+                style={{ touchAction: "none" }}
+              >
+                <DraggableTextOverlay
+                  sampleName={sampleName}
+                  overlayConfig={overlayConfig}
+                  onUpdatePosition={(xPct: number, yPct: number) => {
+                    updateOverlayConfig("xPercent", xPct);
+                    updateOverlayConfig("yPercent", yPct);
+                  }}
+                  onDragEnd={handleDragEnd}
+                  onResizeEnd={handleResizeEnd}
+                  setDraggingOverlay={setDraggingOverlay}
+                />
+              </div>
+            </div>
           </div>
         )}
 
