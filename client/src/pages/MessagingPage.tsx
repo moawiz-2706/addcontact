@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, Link2, Loader2, RefreshCw, Search, Send, Settings2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Link2, Loader2, RefreshCw, Search, Send, Settings2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
 import DynamicImagePanel from "@/components/DynamicImagePanel";
 
@@ -50,6 +51,7 @@ export default function MessagingPage() {
   const [contactSearch, setContactSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [selectedContact, setSelectedContact] = useState<SelectedContact | null>(null);
+  const [showImageModal, setShowImageModal] = useState(false);
 
   useEffect(() => {
     const ctx = messagingContextQuery.data;
@@ -113,6 +115,11 @@ export default function MessagingPage() {
       message: currentMessage,
       attachmentUrl: personalizedImageEnabled ? imageUrl : undefined,
     });
+  };
+
+  const handleImageSave = (url: string) => {
+    setPersonalizedImageBaseUrl(url);
+    setShowImageModal(false);
   };
 
   if (!locationId) {
@@ -245,8 +252,35 @@ export default function MessagingPage() {
                 <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
               </div>
               <div className="sm:col-span-2">
-                <label className="text-sm font-medium text-foreground mb-1 block">Personalized Image Base URL</label>
-                <Input value={personalizedImageBaseUrl} onChange={(e) => setPersonalizedImageBaseUrl(e.target.value)} placeholder="https://..." />
+                <label className="text-sm font-medium text-foreground mb-1 block">Personalized Image</label>
+                <div className="flex flex-col gap-2">
+                  {personalizedImageBaseUrl ? (
+                    <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">✅ Image Configured</p>
+                        <p className="text-xs text-blue-600 dark:text-blue-400 truncate">{personalizedImageBaseUrl}</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setPersonalizedImageBaseUrl("");
+                          setShowImageModal(false);
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 underline whitespace-nowrap"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  ) : null}
+                  <Button
+                    onClick={() => setShowImageModal(true)}
+                    variant="outline"
+                    className="gap-2 justify-start"
+                    type="button"
+                  >
+                    <Upload className="h-4 w-4" />
+                    {personalizedImageBaseUrl ? "Change Image" : "Upload & Configure Image"}
+                  </Button>
+                </div>
               </div>
               <div className="sm:col-span-2">
                 <label className="text-sm font-medium text-foreground mb-1 block">Custom Message</label>
@@ -319,12 +353,30 @@ export default function MessagingPage() {
               </div>
             ) : null}
           </div>
-
-          {selectedContact && (
-            <DynamicImagePanel locationId={locationId} contactId={selectedContact.id} />
-          )}
         </section>
       </main>
+
+      <Dialog open={showImageModal} onOpenChange={setShowImageModal}>
+        <DialogContent className="max-w-2xl p-0 gap-0 rounded-xl">
+          <div className="flex items-center justify-between p-5 border-b">
+            <DialogTitle className="text-lg font-semibold">Upload & Configure Personalized Image</DialogTitle>
+            <button
+              onClick={() => setShowImageModal(false)}
+              className="text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div className="p-5">
+            <DynamicImagePanel 
+              locationId={locationId} 
+              contactId={selectedContact?.id || ""} 
+              isModal={true}
+              onSaveUrl={handleImageSave}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
