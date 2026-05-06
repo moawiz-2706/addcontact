@@ -15,19 +15,6 @@
   // Prevent double initialization
   if (window.__MANUS_DEBUG_COLLECTOR__) return;
 
-  // Only enable the collector on development/trusted hosts to avoid
-  // sending logs from production builds (prevents 405 POST errors).
-  try {
-    var hostname = (window.location && window.location.hostname) || "";
-    if (!/localhost|127\.0\.0\.1|manuspre\.computer|manus\.computer|manus-asia\.computer|manuscomputer\.ai/.test(hostname)) {
-      // noop in production
-      window.__MANUS_DEBUG_COLLECTOR__ = true;
-      return;
-    }
-  } catch (e) {
-    // ignore and continue
-  }
-
   // ==========================================================================
   // Configuration
   // ==========================================================================
