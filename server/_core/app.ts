@@ -7,7 +7,6 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerGHLOAuthRoutes } from "../ghl-oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerDynamicImageRenderRoute } from "../routes/dynamicImageRender";
-import { registerManusLogsRoute } from "./manusLogs";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic } from "./vite";
@@ -60,7 +59,6 @@ export function createApp(options?: { serveClient?: boolean }): Express {
 
   registerStorageProxy(app);
   registerDynamicImageRenderRoute(app);
-  registerManusLogsRoute(app);
   registerOAuthRoutes(app);
   registerGHLOAuthRoutes(app);
 
