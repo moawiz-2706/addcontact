@@ -295,7 +295,15 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     setError(null);
 
     try {
+      console.log("[DynamicImagePanel] Starting save...");
+      console.log("[DynamicImagePanel] locationId:", locationId);
+      console.log("[DynamicImagePanel] contactId:", contactId);
+      console.log("[DynamicImagePanel] sampleName:", sampleName);
+      
       const base64 = fileBase64 || (await fileToBase64(file));
+      console.log("[DynamicImagePanel] base64 length:", base64.length);
+      
+      console.log("[DynamicImagePanel] Calling saveAndUpdateMutation...");
       const responsePromise = saveAndUpdateMutation.mutateAsync({
         imageBase64: base64,
         locationId,
@@ -307,7 +315,9 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
 
       // show interim progress
       setTimeout(() => setSaveProgress("Compositing image..."), 500);
+      console.log("[DynamicImagePanel] Waiting for response...");
       const response = await responsePromise;
+      console.log("[DynamicImagePanel] Got response:", response);
       setSaveProgress("Finalizing...");
 
       setResult(response);
@@ -316,8 +326,9 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
       // Show preview confirmation screen so user can accept/decline
       setShowPreviewConfirm(true);
     } catch (err: any) {
-      console.error("Save error:", err);
-      const message = err?.data?.code === "NOT_FOUND" ? err.message : "Failed to save image";
+      console.error("[DynamicImagePanel] Save error:", err);
+      console.error("[DynamicImagePanel] Error data:", err?.data);
+      const message = err?.data?.code === "NOT_FOUND" ? err.message : (err?.message || "Failed to save image");
       setError(message);
       toast.error(message);
       setSaveProgress(null);

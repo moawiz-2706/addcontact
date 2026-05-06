@@ -93,26 +93,37 @@ export const dynamicImageRouter = router({
         overlayConfig: overlayConfigSchema.optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         const startedAt = Date.now();
         const locationId = input.locationId.trim();
         const contactId = input.contactId?.trim() || "";
         const customFieldKey = input.customFieldKey.trim();
 
+        console.log("[dynamicImage.saveAndUpdateContact] Starting...", {
+          locationId,
+          contactId,
+          sampleName: input.sampleName,
+          base64Length: input.imageBase64.length,
+        });
+
         // 2. Composite the base image
+        console.log("[dynamicImage.saveAndUpdateContact] Compositing image...");
         const imageBuffer = Buffer.from(input.imageBase64, "base64");
         const compositeBuffer = await compositeName(
           imageBuffer,
           input.sampleName,
           input.overlayConfig as OverlayConfig
         );
+        console.log("[dynamicImage.saveAndUpdateContact] Composite done, uploading to storage...");
 
         // 3-4. Upload base image + preview in parallel for lower latency
         const [{ url: baseImageUrl, key: baseImageKey }, { url: previewUrl }] = await Promise.all([
           storagePut(`dynamic-images/base`, imageBuffer, "image/png"),
           storagePut(`dynamic-images/preview`, compositeBuffer, "image/png"),
         ]);
+
+        console.log("[dynamicImage.saveAndUpdateContact] Storage upload done, building URL...");
 
         // 5. Build dynamic URL template (runtime rendered, Nifty-style)
         const protocolHeader = (ctx.req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
@@ -147,6 +158,7 @@ export const dynamicImageRouter = router({
 
         // 6. Optionally update the selected contact custom field
         if (contactId) {
+          console.log("[dynamicImage.saveAndUpdateContact] Updating contact custom field...");
           const accessToken = await getValidAccessToken(locationId);
           const fieldId = await getCustomFieldIdByName(locationId, customFieldKey);
           if (!fieldId) {
@@ -185,6 +197,7 @@ export const dynamicImageRouter = router({
               message: `Failed to update GHL contact: ${ghlResponse.status}`,
             });
           }
+          console.log("[dynamicImage.saveAndUpdateContact] Contact updated successfully");
         }
 
         console.log(`[dynamicImage.saveAndUpdateContact] completed in ${Date.now() - startedAt}ms (contactSync=${Boolean(contactId)})`);
@@ -197,6 +210,7 @@ export const dynamicImageRouter = router({
           baseImageKey,
         };
       } catch (error) {
+        console.error("[dynamicImage.saveAndUpdateContact] Error caught:", error);
         if (error instanceof TRPCError) throw error;
         console.error("[dynamicImage.saveAndUpdateContact]", error);
         throw new TRPCError({
