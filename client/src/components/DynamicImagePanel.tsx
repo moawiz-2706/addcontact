@@ -599,24 +599,36 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
 
         {/* Preview confirmation after save: let user accept or return to editing */}
         {showPreviewConfirm && result && (
-          <div className="mb-3 p-3 border rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700">
-            <p className="text-sm font-semibold mb-2">Preview Generated Image</p>
-            <div className="mb-3 w-full rounded overflow-hidden border bg-slate-50 dark:bg-slate-800">
-              <img src={result.previewUrl} alt="Preview result" className="w-full h-48 object-contain" />
+          <div className="mb-3 p-4 border rounded-lg bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/20 dark:to-slate-900 border-blue-300 dark:border-blue-800 shadow-md">
+            <p className="text-base font-bold mb-3 text-slate-900 dark:text-white flex items-center gap-2">
+              ✨ Generated Image Preview
+            </p>
+            <div className="mb-4 w-full rounded-lg overflow-hidden border-2 border-blue-200 dark:border-blue-700 bg-slate-50 dark:bg-slate-800">
+              <img src={result.previewUrl} alt="Preview result" className="w-full h-auto max-h-80 object-contain" />
             </div>
             <div className="flex gap-2">
-              <Button variant="default" onClick={handleUseImage} className="flex-1">
-                Use this Image
+              <Button 
+                variant="default" 
+                onClick={handleUseImage} 
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                size="lg"
+              >
+                ✓ Use this Image
               </Button>
-              <Button variant="outline" onClick={handleKeepEditing} className="flex-1">
-                Keep Editing
+              <Button 
+                variant="outline" 
+                onClick={handleKeepEditing} 
+                className="flex-1"
+                size="lg"
+              >
+                ← Keep Editing
               </Button>
             </div>
           </div>
         )}
 
-        {/* Result */}
-        {result && (
+        {/* Result (only show when NOT in preview confirmation mode) */}
+        {result && !showPreviewConfirm && (
           <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded">
             <div className="flex items-start gap-2 mb-2">
               <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
