@@ -294,6 +294,16 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     setSaveProgress(hasContactId ? "Uploading image..." : "Uploading image template...");
     setError(null);
 
+    // Add a timeout to prevent infinite spinning
+    const timeoutId = setTimeout(() => {
+      if (saving) {
+        setSaving(false);
+        setSaveProgress(null);
+        setError("Save timeout - the server took too long to respond. Please try again.");
+        toast.error("Save timeout - please try again");
+      }
+    }, 60000); // 60 second timeout
+
     try {
       console.log("[DynamicImagePanel] Starting save...");
       console.log("[DynamicImagePanel] locationId:", locationId);
@@ -328,11 +338,13 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     } catch (err: any) {
       console.error("[DynamicImagePanel] Save error:", err);
       console.error("[DynamicImagePanel] Error data:", err?.data);
+      console.error("[DynamicImagePanel] Error message:", err?.message);
       const message = err?.data?.code === "NOT_FOUND" ? err.message : (err?.message || "Failed to save image");
       setError(message);
       toast.error(message);
       setSaveProgress(null);
     } finally {
+      clearTimeout(timeoutId);
       setSaving(false);
     }
   };
