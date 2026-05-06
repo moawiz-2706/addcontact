@@ -6,6 +6,8 @@ services:
     buildCommand: pnpm install --no-frozen-lockfile && pnpm build
     startCommand: pnpm start
     envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
       - key: NODE_ENV
         value: production
       - key: PORT
