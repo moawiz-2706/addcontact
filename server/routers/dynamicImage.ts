@@ -118,31 +118,29 @@ export const dynamicImageRouter = router({
         console.log("[dynamicImage.saveAndUpdateContact] Composite done, uploading to storage...");
 
         // 3-4. Upload base image + preview in parallel for lower latency
-        try {
-          console.log("[dynamicImage.saveAndUpdateContact] Starting S3 uploads...");
-          const uploadResults = await Promise.allSettled([
-            storagePut(`dynamic-images/base`, imageBuffer, "image/png"),
-            storagePut(`dynamic-images/preview`, compositeBuffer, "image/png"),
-          ]);
+        console.log("[dynamicImage.saveAndUpdateContact] Starting S3 uploads...");
+        const uploadResults = await Promise.allSettled([
+          storagePut(`dynamic-images/base`, imageBuffer, "image/png"),
+          storagePut(`dynamic-images/preview`, compositeBuffer, "image/png"),
+        ]);
 
-          console.log("[dynamicImage.saveAndUpdateContact] Upload results:", uploadResults.map((r) => r.status));
+        console.log("[dynamicImage.saveAndUpdateContact] Upload results:", uploadResults.map((r) => r.status));
 
-          const baseUpload = uploadResults[0];
-          const previewUpload = uploadResults[1];
+        const baseUpload = uploadResults[0];
+        const previewUpload = uploadResults[1];
 
-          if (baseUpload.status === "rejected") {
-            console.error("[dynamicImage.saveAndUpdateContact] Base image upload failed:", baseUpload.reason);
-            throw baseUpload.reason;
-          }
-          if (previewUpload.status === "rejected") {
-            console.error("[dynamicImage.saveAndUpdateContact] Preview image upload failed:", previewUpload.reason);
-            throw previewUpload.reason;
-          }
+        if (baseUpload.status === "rejected") {
+          console.error("[dynamicImage.saveAndUpdateContact] Base image upload failed:", baseUpload.reason);
+          throw baseUpload.reason;
+        }
+        if (previewUpload.status === "rejected") {
+          console.error("[dynamicImage.saveAndUpdateContact] Preview image upload failed:", previewUpload.reason);
+          throw previewUpload.reason;
+        }
 
-          const { url: baseImageUrl, key: baseImageKey } = baseUpload.value;
-          const { url: previewUrl } = previewUpload.value;
-          console.log("[dynamicImage.saveAndUpdateContact] Storage upload done, building URL...");
-
+        const { url: baseImageUrl, key: baseImageKey } = baseUpload.value;
+        const { url: previewUrl } = previewUpload.value;
+        console.log("[dynamicImage.saveAndUpdateContact] Storage upload done, building URL...");
 
         // 5. Build dynamic URL template (runtime rendered, Nifty-style)
         const protocolHeader = (ctx.req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
