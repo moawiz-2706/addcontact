@@ -43,7 +43,7 @@ export const dynamicImageRouter = router({
         overlayConfig: overlayConfigSchema.optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         // Decode base64 image
         const imageBuffer = Buffer.from(input.imageBase64, "base64");
@@ -114,9 +114,36 @@ export const dynamicImageRouter = router({
           storagePut(`dynamic-images/preview`, compositeBuffer, "image/png"),
         ]);
 
-        // 5. Build dynamic URL template
-        // The base URL uses the storage key; client appends ?name=VALUE
-        const dynamicUrlTemplate = `${baseImageUrl}?name=`;
+        // 5. Build dynamic URL template (runtime rendered, Nifty-style)
+        const protocolHeader = (ctx.req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
+        const hostHeader = (ctx.req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0]?.trim() || ctx.req.get("host") || "";
+        const protocol = protocolHeader || (hostHeader.includes("localhost") ? "http" : "https");
+        const origin = `${protocol}://${hostHeader}`;
+
+        const effectiveConfig = {
+          fontSize: input.overlayConfig?.fontSize ?? 72,
+          fontColor: input.overlayConfig?.fontColor ?? "#ffffff",
+          fontWeight: input.overlayConfig?.fontWeight ?? "bold",
+          positionType: input.overlayConfig?.positionType ?? "center",
+          xPercent: input.overlayConfig?.xPercent ?? 50,
+          yPercent: input.overlayConfig?.yPercent ?? 50,
+          bgColor: input.overlayConfig?.bgColor ?? "#000000",
+          bgOpacity: input.overlayConfig?.bgOpacity ?? 0,
+          padding: input.overlayConfig?.padding ?? 16,
+        };
+
+        const dynamicUrlTemplate =
+          `${origin}/api/dynamic-image/${encodeURIComponent(baseImageKey)}` +
+          `?fontSize=${encodeURIComponent(String(effectiveConfig.fontSize))}` +
+          `&fontColor=${encodeURIComponent(effectiveConfig.fontColor)}` +
+          `&fontWeight=${encodeURIComponent(effectiveConfig.fontWeight)}` +
+          `&positionType=${encodeURIComponent(effectiveConfig.positionType)}` +
+          `&xPercent=${encodeURIComponent(String(effectiveConfig.xPercent))}` +
+          `&yPercent=${encodeURIComponent(String(effectiveConfig.yPercent))}` +
+          `&bgColor=${encodeURIComponent(effectiveConfig.bgColor)}` +
+          `&bgOpacity=${encodeURIComponent(String(effectiveConfig.bgOpacity))}` +
+          `&padding=${encodeURIComponent(String(effectiveConfig.padding))}` +
+          `&name=`;
 
         // 6. Optionally update the selected contact custom field
         if (contactId) {
