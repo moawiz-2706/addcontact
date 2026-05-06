@@ -162,6 +162,7 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     previewUrl: string;
     baseImageUrl: string;
   } | null>(null);
+  const [showPreviewConfirm, setShowPreviewConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [draggingOverlay, setDraggingOverlay] = useState(false);
@@ -312,11 +313,8 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
       setResult(response);
       toast.success(hasContactId ? "Image saved and URL written to contact!" : "Image saved and template ready!");
       setSaveProgress(null);
-      
-      // Call callback if provided (for modal use)
-      if (onSaveUrl) {
-        onSaveUrl(response.dynamicUrlTemplate);
-      }
+      // Show preview confirmation screen so user can accept/decline
+      setShowPreviewConfirm(true);
     } catch (err: any) {
       console.error("Save error:", err);
       const message = err?.data?.code === "NOT_FOUND" ? err.message : "Failed to save image";
@@ -334,6 +332,19 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     navigator.clipboard.writeText(result.dynamicUrlTemplate);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleUseImage = () => {
+    if (!result) return;
+    // notify parent (MessagingPage) to save the template and close modal
+    if (onSaveUrl) onSaveUrl(result.dynamicUrlTemplate);
+    // reset local preview state
+    setShowPreviewConfirm(false);
+    setResult(null);
+  };
+
+  const handleKeepEditing = () => {
+    setShowPreviewConfirm(false);
   };
 
   // Drag and drop
@@ -585,6 +596,24 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
             </>
           )}
         </Button>
+
+        {/* Preview confirmation after save: let user accept or return to editing */}
+        {showPreviewConfirm && result && (
+          <div className="mb-3 p-3 border rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700">
+            <p className="text-sm font-semibold mb-2">Preview Generated Image</p>
+            <div className="mb-3 w-full rounded overflow-hidden border bg-slate-50 dark:bg-slate-800">
+              <img src={result.previewUrl} alt="Preview result" className="w-full h-48 object-contain" />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="default" onClick={handleUseImage} className="flex-1">
+                Use this Image
+              </Button>
+              <Button variant="outline" onClick={handleKeepEditing} className="flex-1">
+                Keep Editing
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Result */}
         {result && (
