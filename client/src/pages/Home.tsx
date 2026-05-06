@@ -20,7 +20,6 @@ import { Button } from "@/components/ui/button";
 import SingleContactForm from "@/components/SingleContactForm";
 import CSVUploadFlow from "@/components/CSVUploadFlow";
 import ContactsPage from "./ContactsPage";
-import MessagingPage from "./MessagingPage";
 import { trpc } from "@/lib/trpc";
 
 export default function Home() {
@@ -31,10 +30,6 @@ export default function Home() {
 
   if (view === "contacts") {
     return <ContactsPage />;
-  }
-
-  if (view === "messaging") {
-    return <MessagingPage />;
   }
 
   // Get locationId from URL query parameters
