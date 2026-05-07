@@ -289,26 +289,40 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
       console.log("[DynamicImagePanel] base64 length:", base64.length);
       
       console.log("[DynamicImagePanel] Calling saveAndUpdateMutation...");
-      const responsePromise = saveAndUpdateMutation.mutateAsync({
+      console.log("[DynamicImagePanel] Mutation object:", saveAndUpdateMutation);
+      
+      const mutationInput = {
         imageBase64: base64,
         locationId,
         contactId: contactId || "",
         sampleName,
         customFieldKey: "dynamic_image_url",
         overlayConfig,
-      });
-
-      // Race between the mutation and the timeout
-      const response = await Promise.race([responsePromise, timeoutPromise]);
+      };
       
-      console.log("[DynamicImagePanel] Got response:", response);
-      setSaveProgress("Finalizing...");
+      console.log("[DynamicImagePanel] Mutation input keys:", Object.keys(mutationInput));
+      console.log("[DynamicImagePanel] Mutation input imageBase64 length:", mutationInput.imageBase64.length);
+      
+      try {
+        console.log("[DynamicImagePanel] About to call mutateAsync...");
+        const responsePromise = saveAndUpdateMutation.mutateAsync(mutationInput);
+        console.log("[DynamicImagePanel] mutateAsync called, returned promise");
 
-      setResult(response);
-      toast.success(hasContactId ? "Image saved and URL generated!" : "Image saved and template ready!");
-      setSaveProgress(null);
-      if (onSaveUrl) {
-        onSaveUrl({ url: response.dynamicUrlTemplate, previewUrl: response.previewUrl });
+        // Race between the mutation and the timeout
+        const response = await Promise.race([responsePromise, timeoutPromise]);
+        
+        console.log("[DynamicImagePanel] Got response:", response);
+        setSaveProgress("Finalizing...");
+
+        setResult(response);
+        toast.success(hasContactId ? "Image saved and URL generated!" : "Image saved and template ready!");
+        setSaveProgress(null);
+        if (onSaveUrl) {
+          onSaveUrl({ url: response.dynamicUrlTemplate, previewUrl: response.previewUrl });
+        }
+      } catch (mutationError) {
+        console.error("[DynamicImagePanel] Mutation error caught:", mutationError);
+        throw mutationError;
       }
     } catch (err: any) {
       console.error("[DynamicImagePanel] Save error:", err);
