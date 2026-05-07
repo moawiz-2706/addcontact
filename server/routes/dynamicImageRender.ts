@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { storageGetSignedUrl } from "../storage";
 import { compositeName, type OverlayConfig } from "../services/imageCompositor";
+import { ENV } from "../_core/env";
 
 function asNum(value: unknown, fallback: number, min: number, max: number): number {
   const n = Number(value);
@@ -62,9 +63,16 @@ export function registerDynamicImageRenderRoute(app: Express) {
         signedUrl = `${proto}://${host}/manus-storage/${encodeURIComponent(key)}`;
       }
 
+      console.log("[dynamicImage.render] Starting render for key:", key, "name:", name);
+      console.log("[dynamicImage.render] Resolved storage URL:", signedUrl);
+
       const baseResponse = await fetch(signedUrl);
+      console.log("[dynamicImage.render] Fetch response status:", baseResponse.status);
+
       if (!baseResponse.ok) {
-        res.status(502).send("Failed to fetch base image");
+        const respText = await baseResponse.text();
+        console.error("[dynamicImage.render] Base image fetch failed", baseResponse.status, respText);
+        res.status(502).send(`Failed to fetch base image (${baseResponse.status}): ${respText}`);
         return;
       }
 
