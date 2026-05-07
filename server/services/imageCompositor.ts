@@ -10,6 +10,8 @@ import sharp from "sharp";
 export const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
 const MAX_RENDER_DIMENSION = 2200;
 const MAX_INPUT_PIXELS = 40_000_000;
+const TARGET_NORMALIZED_BYTES = 15 * 1024;
+const MIN_RENDER_DIMENSION = 700;
 
 export interface OverlayConfig {
   fontSize?: number;
@@ -24,17 +26,63 @@ export interface OverlayConfig {
 }
 
 export async function normalizeImageForCompose(imageBuffer: Buffer): Promise<Buffer> {
-  // Downscale and normalize to reduce memory pressure in serverless functions.
-  return sharp(imageBuffer, { limitInputPixels: MAX_INPUT_PIXELS })
-    .rotate()
+  // Aggressively normalize to keep memory use low in serverless functions.
+  const base = sharp(imageBuffer, { limitInputPixels: MAX_INPUT_PIXELS }).rotate();
+  const meta = await base.metadata();
+  const originalW = Math.max(1, meta.width ?? MAX_RENDER_DIMENSION);
+  const originalH = Math.max(1, meta.height ?? MAX_RENDER_DIMENSION);
+
+  let best = await base
+    .clone()
     .resize({
       width: MAX_RENDER_DIMENSION,
       height: MAX_RENDER_DIMENSION,
       fit: "inside",
       withoutEnlargement: true,
     })
-    .jpeg({ quality: 86, mozjpeg: true })
+    .jpeg({ quality: 82, mozjpeg: true })
     .toBuffer();
+
+  if (best.length <= TARGET_NORMALIZED_BYTES) return best;
+
+  const qualitySteps = [72, 62, 52, 42, 34, 28, 24];
+  for (const quality of qualitySteps) {
+    const candidate = await base
+      .clone()
+      .resize({
+        width: MAX_RENDER_DIMENSION,
+        height: MAX_RENDER_DIMENSION,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality, mozjpeg: true })
+      .toBuffer();
+
+    best = candidate;
+    if (candidate.length <= TARGET_NORMALIZED_BYTES) return candidate;
+  }
+
+  // If still above target, reduce dimensions gradually.
+  const maxEdge = Math.max(originalW, originalH);
+  const dimensionSteps = [1600, 1400, 1200, 1000, 900, 800, 700];
+  for (const targetEdge of dimensionSteps) {
+    const clampedEdge = Math.max(MIN_RENDER_DIMENSION, Math.min(MAX_RENDER_DIMENSION, targetEdge));
+    const scale = Math.min(1, clampedEdge / maxEdge);
+    const w = Math.max(MIN_RENDER_DIMENSION, Math.round(originalW * scale));
+    const h = Math.max(MIN_RENDER_DIMENSION, Math.round(originalH * scale));
+
+    const candidate = await base
+      .clone()
+      .resize({ width: w, height: h, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 22, mozjpeg: true })
+      .toBuffer();
+
+    best = candidate;
+    if (candidate.length <= TARGET_NORMALIZED_BYTES) return candidate;
+  }
+
+  // Best effort if the source image cannot practically reach target size.
+  return best;
 }
 
 /**
