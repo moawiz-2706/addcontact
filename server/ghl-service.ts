@@ -357,33 +357,6 @@ export async function searchContacts(
   };
 }
 
-export async function listWorkflows(locationId: string): Promise<GHLWorkflowSummary[]> {
-  const accessToken = await getValidAccessToken(locationId);
-  const normalizedLocationId = locationId.trim();
-
-  const candidateUrls = [
-    `${GHL_BASE_URL}/workflows/?locationId=${encodeURIComponent(normalizedLocationId)}`,
-    `${GHL_BASE_URL}/workflows?locationId=${encodeURIComponent(normalizedLocationId)}`,
-    `${GHL_BASE_URL}/workflows/`,
-    `${GHL_BASE_URL}/workflows`,
-  ];
-
-  for (const url of candidateUrls) {
-    const result = await fetchMaybeJson(url, accessToken, { method: "GET" });
-
-    if (!result.ok) {
-      if (result.status === 404) continue;
-      console.warn(`[GHL] Workflow list request failed for ${url}: ${result.status}`);
-      continue;
-    }
-
-    const workflows = extractWorkflowResponse(result.body);
-    if (workflows.length > 0) return workflows;
-  }
-
-  return [];
-}
-
 export async function getMessagingContext(locationId: string): Promise<GHLMessagingContext> {
   const { accessToken } = await getAccessTokenAndInstallation(locationId);
 
@@ -855,19 +828,6 @@ export async function getAllInstallations(): Promise<GHLInstallation[]> {
 /**
  * Update the workflow ID for a specific installation.
  */
-export async function updateWorkflowId(
-  locationId: string,
-  workflowId: string
-): Promise<void> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  await db
-    .update(ghlInstallations)
-    .set({ workflowId })
-    .where(eq(ghlInstallations.locationId, locationId));
-}
-
 /**
  * Get a valid access token for a location, refreshing if needed.
  */
@@ -993,7 +953,96 @@ export async function addContactToWorkflow(
 }
 
 /**
- * Process a single contact: create + optionally add to workflow.
+ * Add a tag to a contact. Tries several possible GHL endpoints and falls back
+ * to creating the tag first then attaching it to the contact.
+ */
+export async function addTagToContact(
+  locationId: string,
+  contactId: string,
+  tagName: string
+): Promise<{ success: boolean }> {
+  const accessToken = await getValidAccessToken(locationId);
+
+  // Attempt a few common endpoints / shapes that GHL might accept.
+  const attempts: Array<{ url: string; method?: string; body?: unknown }> = [
+    { url: `${GHL_BASE_URL}/contacts/${contactId}/tags`, method: "POST", body: { tags: [tagName] } },
+    { url: `${GHL_BASE_URL}/contacts/${contactId}/tag`, method: "POST", body: { tag: tagName } },
+    { url: `${GHL_BASE_URL}/contacts/${contactId}`, method: "PATCH", body: { tags: [tagName] } },
+  ];
+
+  let lastError = "";
+  for (const attempt of attempts) {
+    try {
+      const response = await fetch(attempt.url, {
+        method: attempt.method ?? "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+          Version: GHL_API_VERSION,
+        },
+        body: attempt.body ? JSON.stringify(attempt.body) : undefined,
+      });
+
+      if (response.ok) {
+        return { success: true };
+      }
+
+      const body = await response.text().catch(() => "");
+      lastError = `${response.status} ${body} (${attempt.url})`;
+
+      // Try next attempt for 404/405; otherwise stop
+      if (response.status !== 404 && response.status !== 405) break;
+    } catch (err: any) {
+      lastError = String(err?.message ?? err);
+    }
+  }
+
+  // If direct contact-tagging failed, try creating the tag then attaching by id
+  try {
+    const createResp = await fetch(`${GHL_BASE_URL}/tags`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+        Version: GHL_API_VERSION,
+      },
+      body: JSON.stringify({ name: tagName, locationId }),
+    });
+
+    if (createResp.ok) {
+      const created = await createResp.json().catch(() => ({} as any));
+      const tagId = (created && (created.id || created.tagId)) || undefined;
+      if (tagId) {
+        const attachResp = await fetch(`${GHL_BASE_URL}/contacts/${contactId}/tags/${tagId}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: `Bearer ${accessToken}`,
+            Version: GHL_API_VERSION,
+          },
+        });
+
+        if (attachResp.ok) return { success: true };
+        const body = await attachResp.text().catch(() => "");
+        lastError = `${attachResp.status} ${body} (attach by id)`;
+      }
+    } else {
+      const body = await createResp.text().catch(() => "");
+      lastError = `${createResp.status} ${body} (create tag)`;
+    }
+  } catch (err: any) {
+    lastError = String(err?.message ?? err);
+  }
+
+  throw new Error(lastError || `Failed to add tag ${tagName} to contact ${contactId}`);
+}
+
+/**
+ * Process a single contact: create + tag with the trigger tag so workflows
+ * configured to run on tag assignment will fire.
  */
 export async function processContact(
   locationId: string,
@@ -1003,16 +1052,18 @@ export async function processContact(
   const result = await createContact(locationId, contact);
   const contactId = result.contact.id;
 
+  // Tag-based workaround: add a trigger tag to the contact so existing GHL
+  // workflows that are configured to start on that tag will run.
+  const triggerTag = process.env.GHL_TRIGGER_TAG ?? "royal_review_personalizer";
   let enrolledInWorkflow = false;
-  if (!contact.dnd && workflowId) {
+
+  if (!contact.dnd) {
     try {
-      await addContactToWorkflow(locationId, contactId, workflowId);
-      enrolledInWorkflow = true;
+      await addTagToContact(locationId, contactId, triggerTag);
+      // We can't reliably know whether a workflow was triggered by tagging,
+      // so we return enrolledInWorkflow=false but the tag was added.
     } catch (error) {
-      console.warn(
-        `[GHL] Failed to enroll contact ${contactId} in workflow:`,
-        error
-      );
+      console.warn(`[GHL] Failed to add tag to contact ${contactId}:`, error);
     }
   }
 

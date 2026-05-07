@@ -41,7 +41,7 @@ export const ghlInstallations = pgTable("ghl_installations", {
   scopes: text("scopes"),
   /** GHL user ID who installed */
   userId: varchar("userId", { length: 128 }),
-  /** Workflow ID for Review Reactivation (configurable per location) */
+  /** DEPRECATED: Workflow ID (no longer used; contacts are tagged instead) */
   workflowId: varchar("workflowId", { length: 128 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),

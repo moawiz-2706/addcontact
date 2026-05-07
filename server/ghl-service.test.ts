@@ -7,7 +7,6 @@ vi.mock("./ghl-service", () => ({
   getInstallation: vi.fn(),
   getAllInstallations: vi.fn(),
   processContact: vi.fn(),
-  updateWorkflowId: vi.fn(),
   getValidAccessToken: vi.fn(),
 }));
 
@@ -15,14 +14,12 @@ import {
   getInstallation,
   getAllInstallations,
   processContact,
-  updateWorkflowId,
   getValidAccessToken,
 } from "./ghl-service";
 
 const mockedGetInstallation = vi.mocked(getInstallation);
 const mockedGetAllInstallations = vi.mocked(getAllInstallations);
 const mockedProcessContact = vi.mocked(processContact);
-const mockedUpdateWorkflowId = vi.mocked(updateWorkflowId);
 const mockedGetValidAccessToken = vi.mocked(getValidAccessToken);
 
 function createPublicContext(): TrpcContext {
@@ -76,7 +73,6 @@ describe("ghl.connectionStatus", () => {
 
     expect(result.connected).toBe(false);
     expect(result.locationId).toBe("loc_123");
-    expect(result.workflowId).toBeNull();
   });
 
   it("returns connected=true when installation exists", async () => {
@@ -101,7 +97,6 @@ describe("ghl.connectionStatus", () => {
 
     expect(result.connected).toBe(true);
     expect(result.locationId).toBe("loc_123");
-    expect(result.workflowId).toBe("wf_001");
   });
 });
 
@@ -153,8 +148,7 @@ describe("ghl.createContact", () => {
         email: "john@example.com",
         phone: "+1234567890",
         dnd: false,
-      },
-      "wf_001"
+      }
     );
   });
 
@@ -170,25 +164,6 @@ describe("ghl.createContact", () => {
         },
       })
     ).rejects.toThrow("GHL location not connected");
-  });
-});
-
-describe("ghl.updateWorkflowId", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("updates the workflow ID for a location", async () => {
-    mockedUpdateWorkflowId.mockResolvedValue(undefined);
-    const caller = appRouter.createCaller(createPublicContext());
-
-    const result = await caller.ghl.updateWorkflowId({
-      locationId: "loc_123",
-      workflowId: "wf_new_001",
-    });
-
-    expect(result.success).toBe(true);
-    expect(mockedUpdateWorkflowId).toHaveBeenCalledWith("loc_123", "wf_new_001");
   });
 });
 

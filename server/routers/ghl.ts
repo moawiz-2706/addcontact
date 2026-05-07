@@ -16,12 +16,10 @@ import {
   getInstallation,
   getAllInstallations,
   searchContacts,
-  listWorkflows,
   getMessagingContext,
   updateMessagingSettings,
   sendTestMessage,
   processContact,
-  updateWorkflowId,
   getValidAccessToken,
   type GHLContactData,
   type GHLContactStatusFilter,
@@ -84,7 +82,6 @@ export const ghlRouter = router({
         return {
           connected: false,
           locationId: normalizedLocationId,
-          workflowId: null,
           expiresAt: null,
         };
       }
@@ -92,19 +89,9 @@ export const ghlRouter = router({
       return {
         connected: true,
         locationId: normalizedLocationId,
-        workflowId: installation.workflowId,
         expiresAt: installation.expiresAt,
       };
     }),
-
-    /**
-     * List available workflows for a connected sub-account.
-     */
-    listWorkflows: publicProcedure
-      .input(z.object({ locationId: z.string().min(1) }))
-      .query(async ({ input }) => {
-        return listWorkflows(input.locationId.trim());
-      }),
 
   /**
    * Create a single contact and optionally enroll in workflow.
@@ -136,8 +123,7 @@ export const ghlRouter = router({
 
       const result = await processContact(
         normalizedLocationId,
-        contactData,
-        installation.workflowId ?? undefined
+        contactData
       );
 
       return result;
@@ -176,8 +162,7 @@ export const ghlRouter = router({
         try {
           const result = await processContact(
             normalizedLocationId,
-            contactData,
-            installation.workflowId ?? undefined
+            contactData
           );
           successful++;
           if (result.enrolledInWorkflow) enrolled++;
@@ -200,21 +185,6 @@ export const ghlRouter = router({
     }),
 
   /**
-   * Update the workflow ID for a location.
-   */
-  updateWorkflowId: publicProcedure
-    .input(
-      z.object({
-        locationId: z.string().min(1),
-        workflowId: z.string().min(1),
-      })
-    )
-    .mutation(async ({ input }) => {
-      await updateWorkflowId(input.locationId.trim(), input.workflowId);
-      return { success: true };
-    }),
-
-  /**
    * Get all installations (admin view).
    */
   listInstallations: protectedProcedure.query(async () => {
@@ -222,7 +192,6 @@ export const ghlRouter = router({
     return installations.map((inst) => ({
       locationId: inst.locationId,
       companyId: inst.companyId,
-      workflowId: inst.workflowId,
       connected: Date.now() < inst.expiresAt,
       createdAt: inst.createdAt,
       updatedAt: inst.updatedAt,
