@@ -16,6 +16,7 @@ import {
   getInstallation,
   getAllInstallations,
   searchContacts,
+  listWorkflows,
   getMessagingContext,
   updateMessagingSettings,
   sendTestMessage,
@@ -95,6 +96,15 @@ export const ghlRouter = router({
         expiresAt: installation.expiresAt,
       };
     }),
+
+    /**
+     * List available workflows for a connected sub-account.
+     */
+    listWorkflows: publicProcedure
+      .input(z.object({ locationId: z.string().min(1) }))
+      .query(async ({ input }) => {
+        return listWorkflows(input.locationId.trim());
+      }),
 
   /**
    * Create a single contact and optionally enroll in workflow.

@@ -14,9 +14,10 @@
  * 3. If connected → show the Add Contacts interface
  */
 
-import { useState, useMemo } from "react";
-import { AlertCircle, CheckCircle2, Loader2, Settings2, Link2 } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { AlertCircle, CheckCircle2, Loader2, Settings2, Link2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import SingleContactForm from "@/components/SingleContactForm";
 import CSVUploadFlow from "@/components/CSVUploadFlow";
 import ContactsPage from "./ContactsPage";
@@ -52,13 +53,30 @@ export default function Home() {
 
   // Workflow ID management
   const [showWorkflowInput, setShowWorkflowInput] = useState(false);
-  const [workflowIdInput, setWorkflowIdInput] = useState("");
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState("");
   const updateWorkflowMutation = trpc.ghl.updateWorkflowId.useMutation({
     onSuccess: () => {
       setShowWorkflowInput(false);
       connectionQuery.refetch();
     },
   });
+  const workflowsQuery = trpc.ghl.listWorkflows.useQuery(
+    { locationId },
+    { enabled: !!locationId && isConnected && showWorkflowInput }
+  );
+
+  useEffect(() => {
+    if (!showWorkflowInput) return;
+    const currentWorkflowId = connectionQuery.data?.workflowId || "";
+    setSelectedWorkflowId(currentWorkflowId);
+  }, [showWorkflowInput, connectionQuery.data?.workflowId]);
+
+  useEffect(() => {
+    if (!showWorkflowInput) return;
+    if (!selectedWorkflowId && connectionQuery.data?.workflowId) {
+      setSelectedWorkflowId(connectionQuery.data.workflowId);
+    }
+  }, [showWorkflowInput, selectedWorkflowId, connectionQuery.data?.workflowId]);
 
   // ─── No Location ID ───────────────────────────────────────────────
   if (!locationId) {
@@ -172,8 +190,8 @@ export default function Home() {
               <span className="text-xs text-muted-foreground">Connected</span>
             </div>
             {connectionQuery.data?.workflowId ? (
-              <span className="text-xs text-muted-foreground">
-                Workflow: <span className="font-mono text-foreground">{connectionQuery.data.workflowId.slice(0, 8)}...</span>
+              <span className="text-xs text-muted-foreground max-w-[220px] truncate">
+                Workflow: <span className="font-mono text-foreground">{connectionQuery.data.workflowId}</span>
               </span>
             ) : (
               <Button
@@ -193,26 +211,54 @@ export default function Home() {
       {/* Workflow ID Input Banner */}
       {showWorkflowInput && (
         <div className="border-b bg-primary/5 px-4 sm:px-6 lg:px-8 py-3">
-          <div className="max-w-7xl mx-auto flex items-center gap-3">
-            <span className="text-sm text-foreground whitespace-nowrap">Workflow ID:</span>
-            <input
-              type="text"
-              value={workflowIdInput}
-              onChange={(e) => setWorkflowIdInput(e.target.value)}
-              placeholder="Enter the Review Reactivation workflow ID"
-              className="flex-1 px-3 py-1.5 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-            />
+          <div className="max-w-7xl mx-auto flex items-center gap-3 flex-wrap">
+            <span className="text-sm text-foreground whitespace-nowrap">Workflow:</span>
+            <div className="flex-1 min-w-[280px]">
+              <Select value={selectedWorkflowId} onValueChange={setSelectedWorkflowId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={workflowsQuery.isLoading ? "Loading workflows..." : "Select workflow from this subaccount"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {workflowsQuery.data?.length ? (
+                    workflowsQuery.data.map((workflow) => (
+                      <SelectItem key={workflow.id} value={workflow.id}>
+                        {workflow.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="no-workflows" disabled>
+                      {workflowsQuery.isLoading ? "Loading workflows..." : "No workflows found"}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            {workflowsQuery.error ? (
+              <p className="w-full text-xs text-muted-foreground">
+                Could not load workflow list. The saved ID will still work if you paste or select one from GHL.
+              </p>
+            ) : null}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => workflowsQuery.refetch()}
+              disabled={workflowsQuery.isFetching}
+              className="h-8 w-8"
+              title="Refresh workflow list"
+            >
+              <RefreshCw className={`h-4 w-4 ${workflowsQuery.isFetching ? "animate-spin" : ""}`} />
+            </Button>
             <Button
               size="sm"
               onClick={() => {
-                if (workflowIdInput.trim()) {
+                if (selectedWorkflowId.trim()) {
                   updateWorkflowMutation.mutate({
                     locationId,
-                    workflowId: workflowIdInput.trim(),
+                    workflowId: selectedWorkflowId.trim(),
                   });
                 }
               }}
-              disabled={!workflowIdInput.trim() || updateWorkflowMutation.isPending}
+              disabled={!selectedWorkflowId.trim() || updateWorkflowMutation.isPending}
               className="h-8"
             >
               Save
@@ -220,7 +266,10 @@ export default function Home() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setShowWorkflowInput(false)}
+              onClick={() => {
+                setShowWorkflowInput(false);
+                setSelectedWorkflowId(connectionQuery.data?.workflowId || "");
+              }}
               className="h-8"
             >
               Cancel

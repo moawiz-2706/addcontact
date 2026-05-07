@@ -92,6 +92,12 @@ export interface GHLSearchContactsOptions {
   statusFilters?: GHLContactStatusFilter[];
 }
 
+export interface GHLWorkflowSummary {
+  id: string;
+  name: string;
+  status: string;
+}
+
 const REVIEW_WORKFLOW_NAMES = ["01. Review Reactivation", "02. Review Request"];
 const MESSAGING_CUSTOM_KEYS = {
   personalizedImageBaseUrl: "nifty_personalized_image_url",
@@ -148,6 +154,21 @@ async function fetchJson<T>(url: string, accessToken: string, init: RequestInit 
   }
 
   return response.json() as Promise<T>;
+}
+
+async function fetchMaybeJson(url: string, accessToken: string, init: RequestInit = {}): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...(init.headers ?? {}),
+      Authorization: `Bearer ${accessToken}`,
+      Version: GHL_API_VERSION,
+    },
+  });
+
+  const body = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, body };
 }
 
 function toStringArray(value: unknown): string[] {
@@ -255,6 +276,25 @@ function extractSearchResponse(body: unknown): { contacts: Record<string, unknow
   return { contacts, total, searchAfter };
 }
 
+function extractWorkflowResponse(body: unknown): GHLWorkflowSummary[] {
+  if (!body || typeof body !== "object") return [];
+
+  const record = body as Record<string, unknown>;
+  const workflowsCandidate = record.workflows ?? record.data ?? record.items ?? record.results ?? [];
+  const workflows = Array.isArray(workflowsCandidate)
+    ? workflowsCandidate.filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    : [];
+
+  return workflows
+    .map((workflow) => {
+      const id = typeof workflow.id === "string" ? workflow.id : typeof workflow.workflowId === "string" ? workflow.workflowId : "";
+      const name = typeof workflow.name === "string" ? workflow.name : typeof workflow.title === "string" ? workflow.title : "Unnamed workflow";
+      const status = typeof workflow.status === "string" ? workflow.status : typeof workflow.active === "boolean" ? (workflow.active ? "active" : "inactive") : "unknown";
+      return { id, name, status };
+    })
+    .filter((workflow) => workflow.id.length > 0);
+}
+
 export async function searchContacts(
   locationId: string,
   options: GHLSearchContactsOptions = {}
@@ -315,6 +355,33 @@ export async function searchContacts(
       pageLimit,
     },
   };
+}
+
+export async function listWorkflows(locationId: string): Promise<GHLWorkflowSummary[]> {
+  const accessToken = await getValidAccessToken(locationId);
+  const normalizedLocationId = locationId.trim();
+
+  const candidateUrls = [
+    `${GHL_BASE_URL}/workflows/?locationId=${encodeURIComponent(normalizedLocationId)}`,
+    `${GHL_BASE_URL}/workflows?locationId=${encodeURIComponent(normalizedLocationId)}`,
+    `${GHL_BASE_URL}/workflows/`,
+    `${GHL_BASE_URL}/workflows`,
+  ];
+
+  for (const url of candidateUrls) {
+    const result = await fetchMaybeJson(url, accessToken, { method: "GET" });
+
+    if (!result.ok) {
+      if (result.status === 404) continue;
+      console.warn(`[GHL] Workflow list request failed for ${url}: ${result.status}`);
+      continue;
+    }
+
+    const workflows = extractWorkflowResponse(result.body);
+    if (workflows.length > 0) return workflows;
+  }
+
+  return [];
 }
 
 export async function getMessagingContext(locationId: string): Promise<GHLMessagingContext> {
@@ -879,10 +946,25 @@ export async function addContactToWorkflow(
   workflowId: string
 ): Promise<{ success: boolean }> {
   const accessToken = await getValidAccessToken(locationId);
-
-  const response = await fetch(
-    `${GHL_BASE_URL}/contacts/${contactId}/workflow/${workflowId}`,
+  const eventStartTime = new Date().toISOString();
+  const attempts = [
     {
+      url: `${GHL_BASE_URL}/contacts/${contactId}/workflow/${workflowId}`,
+      body: { eventStartTime },
+    },
+    {
+      url: `${GHL_BASE_URL}/contacts/${contactId}/workflow`,
+      body: { workflowId, eventStartTime },
+    },
+    {
+      url: `${GHL_BASE_URL}/contacts/${contactId}/workflows/${workflowId}`,
+      body: { eventStartTime },
+    },
+  ];
+
+  let lastError = "";
+  for (const attempt of attempts) {
+    const response = await fetch(attempt.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -890,21 +972,24 @@ export async function addContactToWorkflow(
         Authorization: `Bearer ${accessToken}`,
         Version: GHL_API_VERSION,
       },
-      body: JSON.stringify({
-        eventStartTime: new Date().toISOString(),
-      }),
-    }
-  );
+      body: JSON.stringify(attempt.body),
+    });
 
-  if (!response.ok) {
+    if (response.ok) {
+      return { success: true };
+    }
+
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(
+    lastError =
       (errorBody as Record<string, string>).message ||
-        `Failed to add to workflow: ${response.status}`
-    );
+      `Failed to add to workflow: ${response.status} (${attempt.url})`;
+
+    if (response.status !== 404 && response.status !== 405) {
+      break;
+    }
   }
 
-  return { success: true };
+  throw new Error(lastError || `Failed to add contact ${contactId} to workflow ${workflowId}`);
 }
 
 /**
