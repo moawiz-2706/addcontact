@@ -285,7 +285,7 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     }
 
     setSaving(true);
-    setSaveProgress(hasContactId ? "Uploading image..." : "Uploading image template...");
+    setSaveProgress("Uploading image template...");
     setError(null);
 
     // Add a timeout to prevent infinite spinning
@@ -314,7 +314,6 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
       const mutationInput = {
         imageBase64: base64,
         locationId,
-        contactId: contactId || "",
         sampleName,
         customFieldKey: "dynamic_image_url",
         overlayConfig,
@@ -335,7 +334,7 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
         setSaveProgress("Finalizing...");
 
         setResult(response);
-        toast.success(hasContactId ? "Image saved and URL generated!" : "Image saved and template ready!");
+        toast.success("Image saved and template ready!");
         setSaveProgress(null);
         if (onSaveUrl) {
           onSaveUrl({ url: response.dynamicUrlTemplate, previewUrl: response.previewUrl });

@@ -85,7 +85,7 @@ export const dynamicImageRouter = router({
       z.object({
         imageBase64: z.string().min(100), // base64-encoded image
         locationId: z.string().min(1),
-        contactId: z.string().min(1).optional(),
+        contactId: z.string().optional(),
         sampleName: z.string().min(1).max(100),
         customFieldKey: z.string().min(1), // e.g., "dynamic_image_url"
         overlayConfig: overlayConfigSchema.optional(),
