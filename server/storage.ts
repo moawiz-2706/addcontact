@@ -37,6 +37,54 @@ export async function storagePut(
   const key = appendHashSuffix(normalizeKey(relKey));
 
   console.log("[storagePut] Starting upload for key:", key);
+  // If Supabase Storage is configured, use it first.
+  if (ENV.supabaseUrl && ENV.supabaseServiceKey) {
+    const supaUrl = ENV.supabaseUrl.replace(/\/+$/, "");
+    const bucket = ENV.supabaseBucket || "dynamic-images";
+    try {
+      console.log("[storagePut] Uploading to Supabase Storage", bucket, key);
+      const uploadUrl = `${supaUrl}/storage/v1/object/${bucket}/${encodeURIComponent(key)}`;
+      const blob =
+        typeof data === "string"
+          ? new Blob([data], { type: contentType })
+          : new Blob([data as any], { type: contentType });
+
+      const uploadResp = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${ENV.supabaseServiceKey}`,
+          "Content-Type": contentType,
+          "x-upsert": "true",
+        },
+        body: blob,
+      });
+
+      if (!uploadResp.ok) {
+        const body = await uploadResp.text().catch(() => uploadResp.statusText);
+        throw new Error(`Supabase upload failed (${uploadResp.status}): ${body}`);
+      }
+
+      // Generate signed URL for consumption
+      const signUrl = `${supaUrl}/storage/v1/object/sign/${bucket}/${encodeURIComponent(key)}?expiresIn=3600`;
+      const signResp = await fetch(signUrl, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${ENV.supabaseServiceKey}` },
+      });
+
+      if (!signResp.ok) {
+        const body = await signResp.text().catch(() => signResp.statusText);
+        throw new Error(`Supabase sign URL failed (${signResp.status}): ${body}`);
+      }
+
+      const signData = (await signResp.json()) as { signedURL?: string } | null;
+      const finalUrl = signData?.signedURL || `${supaUrl}/storage/v1/object/public/${bucket}/${encodeURIComponent(key)}`;
+      console.log("[storagePut] Supabase upload complete, url:", finalUrl);
+      return { key, url: finalUrl };
+    } catch (err) {
+      console.error("[storagePut] Supabase upload error:", err);
+      // fall through to other backends or DB fallback
+    }
+  }
 
   // If Forge storage is configured, use it. Otherwise fallback to DB storage.
   if (ENV.forgeApiUrl && ENV.forgeApiKey) {
@@ -153,9 +201,28 @@ export async function storageGet(relKey: string): Promise<{ key: string; url: st
 }
 
 export async function storageGetSignedUrl(relKey: string): Promise<string> {
-  const { forgeUrl, forgeKey } = getForgeConfig();
   const key = normalizeKey(relKey);
 
+  // Supabase signing
+  if (ENV.supabaseUrl && ENV.supabaseServiceKey) {
+    const supaUrl = ENV.supabaseUrl.replace(/\/+$/, "");
+    const bucket = ENV.supabaseBucket || "dynamic-images";
+    const signUrl = `${supaUrl}/storage/v1/object/sign/${bucket}/${encodeURIComponent(key)}?expiresIn=3600`;
+    const signResp = await fetch(signUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${ENV.supabaseServiceKey}` },
+    });
+    if (!signResp.ok) {
+      const body = await signResp.text().catch(() => signResp.statusText);
+      throw new Error(`Supabase sign failed (${signResp.status}): ${body}`);
+    }
+    const signData = (await signResp.json()) as { signedURL?: string } | null;
+    if (signData?.signedURL) return signData.signedURL;
+    return `${supaUrl}/storage/v1/object/public/${bucket}/${encodeURIComponent(key)}`;
+  }
+
+  // Forge signing fallback
+  const { forgeUrl, forgeKey } = getForgeConfig();
   const getUrl = new URL("v1/storage/presign/get", forgeUrl + "/");
   getUrl.searchParams.set("path", key);
 
