@@ -69,11 +69,12 @@ export async function compositeName(
     const desiredTop = Math.round(H * 0.72 - boxH / 2);
     const top = Math.max(24, Math.min(H - boxH - 24, desiredTop));
 
-    // Parse hex color for background
-    const bgHex = bgColor.startsWith("#") ? bgColor : "#ffffff";
-    const bgR = parseInt(bgHex.slice(1, 3), 16) || 255;
-    const bgG = parseInt(bgHex.slice(3, 5), 16) || 255;
-    const bgB = parseInt(bgHex.slice(5, 7), 16) || 255;
+    // Always render the label on a solid white background, per product requirement.
+    const bgHex = "#ffffff";
+    const bgR = 255;
+    const bgG = 255;
+    const bgB = 255;
+    const rectOpacity = 1;
 
     // Create SVG overlay
     const svgText = `
@@ -86,7 +87,7 @@ export async function compositeName(
         <rect
           x="0" y="0"
           width="${Math.round(boxW)}" height="${Math.round(boxH)}"
-          fill="rgba(${bgR},${bgG},${bgB},${bgOpacity})"
+          fill="rgba(${bgR},${bgG},${bgB},${rectOpacity})"
           rx="18"
           ry="18"
           filter="url(#shadow)"

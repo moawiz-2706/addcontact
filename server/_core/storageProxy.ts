@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { ENV } from "./env";
+import { Pool } from "pg";
 
 export function registerStorageProxy(app: Express) {
   app.get("/manus-storage/*", async (req, res) => {
@@ -7,6 +8,21 @@ export function registerStorageProxy(app: Express) {
     if (!key) {
       res.status(400).send("Missing storage key");
       return;
+    }
+
+    if (ENV.supabaseUrl && ENV.supabaseServiceKey) {
+      try {
+        const supaUrl = ENV.supabaseUrl.replace(/\/+$/, "");
+        const bucket = ENV.supabaseBucket || "dynamic-images";
+        const publicUrl = `${supaUrl}/storage/v1/object/public/${bucket}/${encodeURIComponent(key)}`;
+        res.set("Cache-Control", "public, max-age=300");
+        res.redirect(307, publicUrl);
+        return;
+      } catch (err) {
+        console.error("[StorageProxy] Supabase redirect failed:", err);
+        res.status(502).send("Storage proxy Supabase error");
+        return;
+      }
     }
 
     if (!ENV.forgeApiUrl || !ENV.forgeApiKey) {
