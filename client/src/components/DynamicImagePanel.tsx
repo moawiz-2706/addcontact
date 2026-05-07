@@ -111,8 +111,8 @@ function DraggableTextOverlay({
           }}
           onPointerDown={(e) => {
             e.stopPropagation();
-            const startY = (e as PointerEvent).clientY;
-            const startX = (e as PointerEvent).clientX;
+            const startY = e.clientY;
+            const startX = e.clientX;
             const startSize = overlayConfig.fontSize;
             setDraggingOverlay(true);
 
@@ -509,51 +509,8 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
               </div>
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                Position
-              </label>
-              <select
-                value={overlayConfig.positionType}
-                onChange={(e) => updateOverlayConfig("positionType", e.target.value)}
-                className="w-full h-7 text-xs border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700"
-              >
-                <option value="center">Center</option>
-                <option value="custom">Custom X/Y %</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  X %
-                </label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={overlayConfig.xPercent}
-                  onChange={(e) => updateOverlayConfig("xPercent", Number(e.target.value))}
-                  className="h-7 text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                  Y %
-                </label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={overlayConfig.yPercent}
-                  onChange={(e) => updateOverlayConfig("yPercent", Number(e.target.value))}
-                  className="h-7 text-xs"
-                />
-              </div>
-            </div>
-
             <div className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] text-blue-700">
-              Drag the text directly on preview. Current: X {overlayConfig.xPercent}% , Y {overlayConfig.yPercent}% , Size {overlayConfig.fontSize}px
+              The text is placed automatically near the lower middle of the image inside a white rounded label.
             </div>
           </div>
         )}
@@ -571,24 +528,6 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
                 className="w-full max-h-48 object-contain"
                 draggable={false}
               />
-
-              {/* Client-side draggable overlay for instant positioning */}
-              <div
-                className="absolute left-0 top-0 w-full h-full pointer-events-none"
-                style={{ touchAction: "none" }}
-              >
-                <DraggableTextOverlay
-                  sampleName={sampleName}
-                  overlayConfig={overlayConfig}
-                  onUpdatePosition={(xPct: number, yPct: number) => {
-                    updateOverlayConfig("xPercent", xPct);
-                    updateOverlayConfig("yPercent", yPct);
-                  }}
-                  onDragEnd={handleDragEnd}
-                  onResizeEnd={handleResizeEnd}
-                  setDraggingOverlay={setDraggingOverlay}
-                />
-              </div>
             </div>
           </div>
         )}
@@ -693,7 +632,7 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
         )}
 
         <p className="mb-3 text-[11px] text-muted-foreground">
-          Drag the text box directly on the preview. Use the corner handle to resize. Saving works even without a selected contact; if a contact is selected, the URL is also synced there.
+          Upload an image, set the text and styling, then save. The label is positioned automatically and the dynamic URL is written to the contact when one is selected.
         </p>
       </div>
     </div>

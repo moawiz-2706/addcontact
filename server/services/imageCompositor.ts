@@ -46,14 +46,11 @@ export async function compositeName(
 ): Promise<Buffer> {
   const {
     fontSize = 72,
-    fontColor = "#ffffff",
+    fontColor = "#111111",
     fontWeight = "bold",
-    positionType = "center",
-    xPercent = 50,
-    yPercent = 50,
-    bgColor = "transparent",
-    bgOpacity = 0,
-    padding = 16,
+    bgColor = "#ffffff",
+    bgOpacity = 1,
+    padding = 20,
   } = config;
 
   try {
@@ -62,40 +59,37 @@ export async function compositeName(
     const W = meta.width || 800;
     const H = meta.height || 600;
 
-    // Estimate text box dimensions
-    // Rough estimate: 0.6 * fontSize per character width
-    const estimatedTextWidth = name.length * fontSize * 0.6;
-    const boxW = estimatedTextWidth + padding * 2;
-    const boxH = fontSize + padding * 2;
+    // Estimate a label box that sits below the center of the image.
+    const estimatedTextWidth = name.length * fontSize * 0.58;
+    const boxW = Math.min(W - 48, Math.max(240, Math.round(estimatedTextWidth + padding * 2)));
+    const boxH = Math.max(Math.round(fontSize + padding * 2), 84);
 
-    // Calculate anchor position based on positionType
-    let cx: number, cy: number;
-    if (positionType === "center") {
-      cx = W / 2;
-      cy = H / 2;
-    } else {
-      cx = (xPercent / 100) * W;
-      cy = (yPercent / 100) * H;
-    }
+    // Fixed placement: centered horizontally, slightly below the middle of the image.
+    const left = Math.max(24, Math.round((W - boxW) / 2));
+    const desiredTop = Math.round(H * 0.72 - boxH / 2);
+    const top = Math.max(24, Math.min(H - boxH - 24, desiredTop));
 
-    // Calculate top-left corner for text box
-    const left = Math.round(cx - boxW / 2);
-    const top = Math.round(cy - boxH / 2);
-
-    // Parse hex color to rgba for background
-    const bgHex = bgColor.startsWith("#") ? bgColor : "#000000";
-    const bgR = parseInt(bgHex.slice(1, 3), 16) || 0;
-    const bgG = parseInt(bgHex.slice(3, 5), 16) || 0;
-    const bgB = parseInt(bgHex.slice(5, 7), 16) || 0;
+    // Parse hex color for background
+    const bgHex = bgColor.startsWith("#") ? bgColor : "#ffffff";
+    const bgR = parseInt(bgHex.slice(1, 3), 16) || 255;
+    const bgG = parseInt(bgHex.slice(3, 5), 16) || 255;
+    const bgB = parseInt(bgHex.slice(5, 7), 16) || 255;
 
     // Create SVG overlay
     const svgText = `
       <svg width="${Math.round(boxW)}" height="${Math.round(boxH)}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="rgba(0,0,0,0.18)" />
+          </filter>
+        </defs>
         <rect
           x="0" y="0"
           width="${Math.round(boxW)}" height="${Math.round(boxH)}"
           fill="rgba(${bgR},${bgG},${bgB},${bgOpacity})"
-          rx="4"
+          rx="18"
+          ry="18"
+          filter="url(#shadow)"
         />
         <text
           x="${Math.round(boxW / 2)}"
