@@ -9,7 +9,6 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { publicProcedure, router } from "../_core/trpc";
 import { compositeName, type OverlayConfig } from "../services/imageCompositor";
-import { getValidAccessToken, getCustomFieldIdByName } from "../ghl-service";
 import { storagePut } from "../storage";
 
 // Overlay config schema for tRPC validation
@@ -76,10 +75,9 @@ export const dynamicImageRouter = router({
    * Complete flow:
    * 1. Composite image with sample name
    * 2. Upload to storage via storagePut()
-   * 3. Discover or use custom field ID
-   * 4. Save URL to GHL contact custom field
+    * 3. Build dynamic URL template and return it to the client
    *
-   * Input: image buffer + contact ID + field config
+    * Input: image buffer + field config
    * Output: dynamic URL template + preview URL
    */
   saveAndUpdateContact: publicProcedure
@@ -98,11 +96,11 @@ export const dynamicImageRouter = router({
         const startedAt = Date.now();
         const locationId = input.locationId.trim();
         const contactId = input.contactId?.trim() || "";
-        const customFieldKey = input.customFieldKey.trim();
+        void contactId;
+        void input.customFieldKey;
 
         console.log("[dynamicImage.saveAndUpdateContact] Starting...", {
           locationId,
-          contactId,
           sampleName: input.sampleName,
           base64Length: input.imageBase64.length,
         });
@@ -173,51 +171,7 @@ export const dynamicImageRouter = router({
           `&padding=${encodeURIComponent(String(effectiveConfig.padding))}` +
           `&name=`;
 
-        // 6. Optionally update the selected contact custom field
-        if (contactId) {
-          console.log("[dynamicImage.saveAndUpdateContact] Updating contact custom field...");
-          const accessToken = await getValidAccessToken(locationId);
-          const fieldId = await getCustomFieldIdByName(locationId, customFieldKey);
-          if (!fieldId) {
-            throw new TRPCError({
-              code: "NOT_FOUND",
-              message: `Custom field "${customFieldKey}" not found in your GHL account. Please create this field in Settings > Custom Fields.`,
-            });
-          }
-
-          const ghlResponse = await fetch(
-            `https://services.leadconnectorhq.com/contacts/${encodeURIComponent(contactId)}`,
-            {
-              method: "PUT",
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-                "Content-Type": "application/json",
-                Version: "2023-02-21",
-              },
-              body: JSON.stringify({
-                customFields: [
-                  {
-                    id: fieldId,
-                    key: `contact.${customFieldKey}`,
-                    field_value: dynamicUrlTemplate,
-                  },
-                ],
-              }),
-            }
-          );
-
-          if (!ghlResponse.ok) {
-            const errorBody = await ghlResponse.text();
-            console.error("[dynamicImage] GHL update failed:", errorBody);
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Failed to update GHL contact: ${ghlResponse.status}`,
-            });
-          }
-          console.log("[dynamicImage.saveAndUpdateContact] Contact updated successfully");
-        }
-
-        console.log(`[dynamicImage.saveAndUpdateContact] completed in ${Date.now() - startedAt}ms (contactSync=${Boolean(contactId)})`);
+        console.log(`[dynamicImage.saveAndUpdateContact] completed in ${Date.now() - startedAt}ms`);
 
         return {
           success: true,
