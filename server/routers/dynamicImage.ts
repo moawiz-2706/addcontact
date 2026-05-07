@@ -92,8 +92,8 @@ export const dynamicImageRouter = router({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      const startedAt = Date.now();
       try {
-        const startedAt = Date.now();
         const locationId = input.locationId.trim();
         const contactId = input.contactId?.trim() || "";
         void contactId;
@@ -106,87 +106,104 @@ export const dynamicImageRouter = router({
         });
 
         // 2. Composite the base image
-        console.log("[dynamicImage.saveAndUpdateContact] Compositing image...");
-        const imageBuffer = Buffer.from(input.imageBase64, "base64");
-        const compositeBuffer = await compositeName(
-          imageBuffer,
-          input.sampleName,
-          input.overlayConfig as OverlayConfig
-        );
-        console.log("[dynamicImage.saveAndUpdateContact] Composite done, uploading to storage...");
+        console.log("[dynamicImage.saveAndUpdateContact] Step 1: Compositing image...");
+        try {
+          const imageBuffer = Buffer.from(input.imageBase64, "base64");
+          console.log("[dynamicImage.saveAndUpdateContact] Buffer created, size:", imageBuffer.length);
+          
+          const compositeBuffer = await compositeName(
+            imageBuffer,
+            input.sampleName,
+            input.overlayConfig as OverlayConfig
+          );
+          console.log("[dynamicImage.saveAndUpdateContact] Composite done, size:", compositeBuffer.length);
+          
+          // 3-4. Upload base image + preview in parallel for lower latency
+          console.log("[dynamicImage.saveAndUpdateContact] Step 2: Starting S3 uploads...");
+          const uploadStartTime = Date.now();
+          
+          const uploadPromises = [
+            storagePut(`dynamic-images/base`, imageBuffer, "image/png").catch(err => {
+              console.error("[dynamicImage.saveAndUpdateContact] Base upload error:", err);
+              throw new Error(`Base image upload failed: ${err.message}`);
+            }),
+            storagePut(`dynamic-images/preview`, compositeBuffer, "image/png").catch(err => {
+              console.error("[dynamicImage.saveAndUpdateContact] Preview upload error:", err);
+              throw new Error(`Preview image upload failed: ${err.message}`);
+            }),
+          ];
 
-        // 3-4. Upload base image + preview in parallel for lower latency
-        console.log("[dynamicImage.saveAndUpdateContact] Starting S3 uploads...");
-        const uploadResults = await Promise.allSettled([
-          storagePut(`dynamic-images/base`, imageBuffer, "image/png"),
-          storagePut(`dynamic-images/preview`, compositeBuffer, "image/png"),
-        ]);
+          const uploadResults = await Promise.all(uploadPromises);
+          console.log("[dynamicImage.saveAndUpdateContact] All uploads completed in", Date.now() - uploadStartTime, "ms");
 
-        console.log("[dynamicImage.saveAndUpdateContact] Upload results:", uploadResults.map((r) => r.status));
+          const [baseUploadResult, previewUploadResult] = uploadResults;
+          
+          const { url: baseImageUrl, key: baseImageKey } = baseUploadResult;
+          const { url: previewUrl } = previewUploadResult;
+          
+          console.log("[dynamicImage.saveAndUpdateContact] Storage upload done, building URL...");
+          console.log("[dynamicImage.saveAndUpdateContact] baseImageKey:", baseImageKey);
+          console.log("[dynamicImage.saveAndUpdateContact] previewUrl:", previewUrl);
 
-        const baseUpload = uploadResults[0];
-        const previewUpload = uploadResults[1];
+          // 5. Build dynamic URL template (runtime rendered, Nifty-style)
+          const protocolHeader = (ctx.req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
+          const hostHeader = (ctx.req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0]?.trim() || ctx.req.get("host") || "";
+          const protocol = protocolHeader || (hostHeader.includes("localhost") ? "http" : "https");
+          const origin = `${protocol}://${hostHeader}`;
 
-        if (baseUpload.status === "rejected") {
-          console.error("[dynamicImage.saveAndUpdateContact] Base image upload failed:", baseUpload.reason);
-          throw baseUpload.reason;
+          console.log("[dynamicImage.saveAndUpdateContact] Using origin:", origin);
+
+          const effectiveConfig = {
+            fontSize: input.overlayConfig?.fontSize ?? 72,
+            fontColor: input.overlayConfig?.fontColor ?? "#ffffff",
+            fontWeight: input.overlayConfig?.fontWeight ?? "bold",
+            positionType: input.overlayConfig?.positionType ?? "center",
+            xPercent: input.overlayConfig?.xPercent ?? 50,
+            yPercent: input.overlayConfig?.yPercent ?? 50,
+            bgColor: input.overlayConfig?.bgColor ?? "#000000",
+            bgOpacity: input.overlayConfig?.bgOpacity ?? 0,
+            padding: input.overlayConfig?.padding ?? 16,
+          };
+
+          const dynamicUrlTemplate =
+            `${origin}/api/dynamic-image/${encodeURIComponent(baseImageKey)}` +
+            `?fontSize=${encodeURIComponent(String(effectiveConfig.fontSize))}` +
+            `&fontColor=${encodeURIComponent(effectiveConfig.fontColor)}` +
+            `&fontWeight=${encodeURIComponent(effectiveConfig.fontWeight)}` +
+            `&positionType=${encodeURIComponent(effectiveConfig.positionType)}` +
+            `&xPercent=${encodeURIComponent(String(effectiveConfig.xPercent))}` +
+            `&yPercent=${encodeURIComponent(String(effectiveConfig.yPercent))}` +
+            `&bgColor=${encodeURIComponent(effectiveConfig.bgColor)}` +
+            `&bgOpacity=${encodeURIComponent(String(effectiveConfig.bgOpacity))}` +
+            `&padding=${encodeURIComponent(String(effectiveConfig.padding))}` +
+            `&name=`;
+
+          console.log("[dynamicImage.saveAndUpdateContact] URL template built, total time:", Date.now() - startedAt, "ms");
+
+          const response = {
+            success: true,
+            dynamicUrlTemplate,
+            previewUrl,
+            baseImageUrl,
+            baseImageKey,
+          };
+          
+          console.log("[dynamicImage.saveAndUpdateContact] Returning response:", { success: true, baseImageKey, previewUrl });
+          return response;
+        } catch (innerError) {
+          console.error("[dynamicImage.saveAndUpdateContact] Inner error:", innerError);
+          throw innerError;
         }
-        if (previewUpload.status === "rejected") {
-          console.error("[dynamicImage.saveAndUpdateContact] Preview image upload failed:", previewUpload.reason);
-          throw previewUpload.reason;
-        }
-
-        const { url: baseImageUrl, key: baseImageKey } = baseUpload.value;
-        const { url: previewUrl } = previewUpload.value;
-        console.log("[dynamicImage.saveAndUpdateContact] Storage upload done, building URL...");
-
-        // 5. Build dynamic URL template (runtime rendered, Nifty-style)
-        const protocolHeader = (ctx.req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
-        const hostHeader = (ctx.req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0]?.trim() || ctx.req.get("host") || "";
-        const protocol = protocolHeader || (hostHeader.includes("localhost") ? "http" : "https");
-        const origin = `${protocol}://${hostHeader}`;
-
-        const effectiveConfig = {
-          fontSize: input.overlayConfig?.fontSize ?? 72,
-          fontColor: input.overlayConfig?.fontColor ?? "#ffffff",
-          fontWeight: input.overlayConfig?.fontWeight ?? "bold",
-          positionType: input.overlayConfig?.positionType ?? "center",
-          xPercent: input.overlayConfig?.xPercent ?? 50,
-          yPercent: input.overlayConfig?.yPercent ?? 50,
-          bgColor: input.overlayConfig?.bgColor ?? "#000000",
-          bgOpacity: input.overlayConfig?.bgOpacity ?? 0,
-          padding: input.overlayConfig?.padding ?? 16,
-        };
-
-        const dynamicUrlTemplate =
-          `${origin}/api/dynamic-image/${encodeURIComponent(baseImageKey)}` +
-          `?fontSize=${encodeURIComponent(String(effectiveConfig.fontSize))}` +
-          `&fontColor=${encodeURIComponent(effectiveConfig.fontColor)}` +
-          `&fontWeight=${encodeURIComponent(effectiveConfig.fontWeight)}` +
-          `&positionType=${encodeURIComponent(effectiveConfig.positionType)}` +
-          `&xPercent=${encodeURIComponent(String(effectiveConfig.xPercent))}` +
-          `&yPercent=${encodeURIComponent(String(effectiveConfig.yPercent))}` +
-          `&bgColor=${encodeURIComponent(effectiveConfig.bgColor)}` +
-          `&bgOpacity=${encodeURIComponent(String(effectiveConfig.bgOpacity))}` +
-          `&padding=${encodeURIComponent(String(effectiveConfig.padding))}` +
-          `&name=`;
-
-        console.log(`[dynamicImage.saveAndUpdateContact] completed in ${Date.now() - startedAt}ms`);
-
-        return {
-          success: true,
-          dynamicUrlTemplate,
-          previewUrl,
-          baseImageUrl,
-          baseImageKey,
-        };
       } catch (error) {
-        console.error("[dynamicImage.saveAndUpdateContact] Error caught:", error);
-        if (error instanceof TRPCError) throw error;
-        console.error("[dynamicImage.saveAndUpdateContact]", error);
+        console.error("[dynamicImage.saveAndUpdateContact] Error caught (total time:", Date.now() - startedAt, "ms):", error);
+        if (error instanceof TRPCError) {
+          console.error("[dynamicImage.saveAndUpdateContact] Already a TRPC error, re-throwing");
+          throw error;
+        }
+        console.error("[dynamicImage.saveAndUpdateContact] Stack:", (error as any)?.stack);
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: `Save failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+          message: `Save failed: ${error instanceof Error ? error.message : String(error)}`,
         });
       }
     }),

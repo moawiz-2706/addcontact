@@ -269,14 +269,15 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     setError(null);
 
     // Add a timeout to prevent infinite spinning
-    const timeoutId = setTimeout(() => {
-      if (saving) {
-        setSaving(false);
-        setSaveProgress(null);
-        setError("Save timeout - the server took too long to respond. Please try again.");
-        toast.error("Save timeout - please try again");
-      }
-    }, 60000); // 60 second timeout
+    let timeoutId: NodeJS.Timeout | null = null;
+    let isTimeout = false;
+    
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        isTimeout = true;
+        reject(new Error("Save operation timed out after 45 seconds. Please check your connection and try again."));
+      }, 45000); // 45 second timeout
+    });
 
     try {
       console.log("[DynamicImagePanel] Starting save...");
@@ -297,10 +298,9 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
         overlayConfig,
       });
 
-      // show interim progress
-      setTimeout(() => setSaveProgress("Compositing image..."), 500);
-      console.log("[DynamicImagePanel] Waiting for response...");
-      const response = await responsePromise;
+      // Race between the mutation and the timeout
+      const response = await Promise.race([responsePromise, timeoutPromise]);
+      
       console.log("[DynamicImagePanel] Got response:", response);
       setSaveProgress("Finalizing...");
 
@@ -314,12 +314,23 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
       console.error("[DynamicImagePanel] Save error:", err);
       console.error("[DynamicImagePanel] Error data:", err?.data);
       console.error("[DynamicImagePanel] Error message:", err?.message);
-      const message = err?.data?.code === "NOT_FOUND" ? err.message : (err?.message || "Failed to save image");
+      console.error("[DynamicImagePanel] Is timeout:", isTimeout);
+      
+      let message = err?.message || "Failed to save image";
+      
+      if (err?.data?.code === "NOT_FOUND") {
+        message = err.message;
+      } else if (isTimeout) {
+        message = "Save operation timed out. Please check your internet connection and try again.";
+      } else if (err?.message?.includes("timed out")) {
+        message = "The server took too long to respond. Please try again.";
+      }
+      
       setError(message);
       toast.error(message);
       setSaveProgress(null);
     } finally {
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       setSaving(false);
     }
   };
