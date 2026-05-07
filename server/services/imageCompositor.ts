@@ -160,7 +160,7 @@ export async function compositeName(
         />
         <text
           x="${Math.round(boxW / 2)}"
-          y="${Math.round(boxH / 2 + fontSize * 0.35)}"
+          y="${Math.round(boxH / 2)}"
           font-family="Arial, Helvetica, sans-serif"
           font-size="${fontSize}"
           font-weight="${fontWeight}"

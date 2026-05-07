@@ -29,12 +29,19 @@ function appendHashSuffix(relKey: string): string {
   return `${relKey.slice(0, lastDot)}_${hash}${relKey.slice(lastDot)}`;
 }
 
+type StoragePutOptions = {
+  stableKey?: boolean;
+  deleteBeforePut?: boolean;
+};
+
 export async function storagePut(
   relKey: string,
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream",
+  options?: StoragePutOptions,
 ): Promise<{ key: string; url: string }> {
-  const key = appendHashSuffix(normalizeKey(relKey));
+  const normalizedKey = normalizeKey(relKey);
+  const key = options?.stableKey ? normalizedKey : appendHashSuffix(normalizedKey);
 
   console.log("[storagePut] Starting upload for key:", key);
   // If Supabase Storage is configured, use it first.
@@ -43,6 +50,23 @@ export async function storagePut(
     const bucket = ENV.supabaseBucket || "dynamic-images";
     try {
       console.log("[storagePut] Uploading to Supabase Storage", bucket, key);
+      if (options?.deleteBeforePut) {
+        const deleteUrl = `${supaUrl}/storage/v1/object/${bucket}/${encodeURIComponent(key)}`;
+        const deleteResp = await fetch(deleteUrl, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${ENV.supabaseServiceKey}`,
+            apikey: ENV.supabaseServiceKey,
+          },
+        });
+
+        // 404 is expected when there is no prior image; ignore it.
+        if (!deleteResp.ok && deleteResp.status !== 404) {
+          const body = await deleteResp.text().catch(() => deleteResp.statusText);
+          throw new Error(`Supabase delete failed (${deleteResp.status}): ${body}`);
+        }
+      }
+
       const uploadUrl = `${supaUrl}/storage/v1/object/${bucket}/${encodeURIComponent(key)}`;
       const blob =
         typeof data === "string"
@@ -53,6 +77,7 @@ export async function storagePut(
         method: "PUT",
         headers: {
           Authorization: `Bearer ${ENV.supabaseServiceKey}`,
+          apikey: ENV.supabaseServiceKey,
           "Content-Type": contentType,
           "x-upsert": "true",
         },

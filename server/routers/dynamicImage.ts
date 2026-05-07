@@ -108,6 +108,7 @@ export const dynamicImageRouter = router({
       const startedAt = Date.now();
       try {
         const locationId = input.locationId.trim();
+        const scopedLocationId = locationId.replace(/[^a-zA-Z0-9_-]/g, "_");
         const contactId = input.contactId?.trim() || "";
         void contactId;
         void input.customFieldKey;
@@ -144,11 +145,21 @@ export const dynamicImageRouter = router({
           const uploadStartTime = Date.now();
           
           const uploadPromises = [
-            storagePut(`dynamic-images/base`, normalizedBuffer, "image/jpeg").catch(err => {
+            storagePut(
+              `dynamic-images/${scopedLocationId}/base`,
+              normalizedBuffer,
+              "image/jpeg",
+              { stableKey: true, deleteBeforePut: true }
+            ).catch(err => {
               console.error("[dynamicImage.saveAndUpdateContact] Base upload error:", err);
               throw new Error(`Base image upload failed: ${err.message}`);
             }),
-            storagePut(`dynamic-images/preview`, compositeBuffer, "image/png").catch(err => {
+            storagePut(
+              `dynamic-images/${scopedLocationId}/preview`,
+              compositeBuffer,
+              "image/png",
+              { stableKey: true, deleteBeforePut: true }
+            ).catch(err => {
               console.error("[dynamicImage.saveAndUpdateContact] Preview upload error:", err);
               throw new Error(`Preview image upload failed: ${err.message}`);
             }),
