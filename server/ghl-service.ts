@@ -94,7 +94,7 @@ export interface GHLSearchContactsOptions {
 
 const REVIEW_WORKFLOW_NAMES = ["01. Review Reactivation", "02. Review Request"];
 const MESSAGING_CUSTOM_KEYS = {
-  personalizedImageBaseUrl: "personalized_image_base_url",
+  personalizedImageBaseUrl: "nifty_personalized_image_url",
   customMessage: "review_request_message",
   personalizedImageEnabled: "personalized_image_enabled",
 } as const;
