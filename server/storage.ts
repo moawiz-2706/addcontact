@@ -3,6 +3,7 @@
 // Downloads return /manus-storage/{key} paths served via 307 redirect.
 
 import { ENV } from "./_core/env";
+import { Pool } from "pg";
 
 function getForgeConfig() {
   const forgeUrl = ENV.forgeApiUrl;
@@ -33,73 +34,116 @@ export async function storagePut(
   data: Buffer | Uint8Array | string,
   contentType = "application/octet-stream",
 ): Promise<{ key: string; url: string }> {
-  const { forgeUrl, forgeKey } = getForgeConfig();
   const key = appendHashSuffix(normalizeKey(relKey));
 
   console.log("[storagePut] Starting upload for key:", key);
 
+  // If Forge storage is configured, use it. Otherwise fallback to DB storage.
+  if (ENV.forgeApiUrl && ENV.forgeApiKey) {
+    const { forgeUrl, forgeKey } = getForgeConfig();
+    try {
+      // 1. Get presigned PUT URL from Forge with timeout
+      console.log("[storagePut] Requesting presigned URL from Forge...");
+      const presignUrl = new URL("v1/storage/presign/put", forgeUrl + "/");
+      presignUrl.searchParams.set("path", key);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for presign
+
+      let presignResp;
+      try {
+        presignResp = await fetch(presignUrl, {
+          headers: { Authorization: `Bearer ${forgeKey}` },
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      if (!presignResp.ok) {
+        const msg = await presignResp.text().catch(() => presignResp.statusText);
+        throw new Error(`Storage presign failed (${presignResp.status}): ${msg}`);
+      }
+
+      const { url: s3Url } = (await presignResp.json()) as { url: string };
+      if (!s3Url) throw new Error("Forge returned empty presign URL");
+      console.log("[storagePut] Got presigned S3 URL");
+
+      // 2. PUT file directly to S3 with timeout
+      console.log("[storagePut] Uploading to S3...");
+      const blob =
+        typeof data === "string"
+          ? new Blob([data], { type: contentType })
+          : new Blob([data as any], { type: contentType });
+
+      const uploadController = new AbortController();
+      const uploadTimeoutId = setTimeout(() => uploadController.abort(), 60000); // 60 second timeout for upload
+
+      let uploadResp;
+      try {
+        uploadResp = await fetch(s3Url, {
+          method: "PUT",
+          headers: { "Content-Type": contentType },
+          body: blob,
+          signal: uploadController.signal,
+        });
+      } finally {
+        clearTimeout(uploadTimeoutId);
+      }
+
+      if (!uploadResp.ok) {
+        throw new Error(`Storage upload to S3 failed (${uploadResp.status})`);
+      }
+
+      console.log("[storagePut] Upload completed successfully for key:", key);
+      return { key, url: `/manus-storage/${key}` };
+    } catch (error) {
+      console.error("[storagePut] Error:", error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Storage upload timed out: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+
+  // Fallback: store base64 data in Postgres so the app can run without Forge.
   try {
-    // 1. Get presigned PUT URL from Forge with timeout
-    console.log("[storagePut] Requesting presigned URL from Forge...");
-    const presignUrl = new URL("v1/storage/presign/put", forgeUrl + "/");
-    presignUrl.searchParams.set("path", key);
+    if (!ENV.databaseUrl) throw new Error("DATABASE_URL not configured for DB fallback storage");
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for presign
+    const pool = new Pool({ connectionString: ENV.databaseUrl });
+    // ensure table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS stored_files (
+        key varchar PRIMARY KEY,
+        data text NOT NULL,
+        content_type varchar(128) NOT NULL,
+        created_at timestamptz DEFAULT now()
+      )
+    `);
 
-    let presignResp;
-    try {
-      presignResp = await fetch(presignUrl, {
-        headers: { Authorization: `Bearer ${forgeKey}` },
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeoutId);
+    let base64str: string;
+    if (typeof data === "string") {
+      // Assume already base64 or raw string; if it's raw path, this may be incorrect
+      base64str = data;
+    } else if (Buffer.isBuffer(data)) {
+      base64str = (data as Buffer).toString("base64");
+    } else if (data instanceof Uint8Array) {
+      base64str = Buffer.from(data).toString("base64");
+    } else {
+      // Last resort: convert via Blob -> arrayBuffer
+      base64str = Buffer.from(String(data)).toString("base64");
     }
 
-    if (!presignResp.ok) {
-      const msg = await presignResp.text().catch(() => presignResp.statusText);
-      throw new Error(`Storage presign failed (${presignResp.status}): ${msg}`);
-    }
+    await pool.query(`INSERT INTO stored_files (key, data, content_type) VALUES ($1, $2, $3)
+      ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, content_type = EXCLUDED.content_type, created_at = now()
+    `, [key, base64str, contentType]);
 
-    const { url: s3Url } = (await presignResp.json()) as { url: string };
-    if (!s3Url) throw new Error("Forge returned empty presign URL");
-    console.log("[storagePut] Got presigned S3 URL");
-
-    // 2. PUT file directly to S3 with timeout
-    console.log("[storagePut] Uploading to S3...");
-    const blob =
-      typeof data === "string"
-        ? new Blob([data], { type: contentType })
-        : new Blob([data as any], { type: contentType });
-
-    const uploadController = new AbortController();
-    const uploadTimeoutId = setTimeout(() => uploadController.abort(), 60000); // 60 second timeout for upload
-
-    let uploadResp;
-    try {
-      uploadResp = await fetch(s3Url, {
-        method: "PUT",
-        headers: { "Content-Type": contentType },
-        body: blob,
-        signal: uploadController.signal,
-      });
-    } finally {
-      clearTimeout(uploadTimeoutId);
-    }
-
-    if (!uploadResp.ok) {
-      throw new Error(`Storage upload to S3 failed (${uploadResp.status})`);
-    }
-
-    console.log("[storagePut] Upload completed successfully for key:", key);
+    await pool.end();
+    console.log("[storagePut] Stored file in DB with key:", key);
     return { key, url: `/manus-storage/${key}` };
-  } catch (error) {
-    console.error("[storagePut] Error:", error);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Storage upload timed out: ${error.message}`);
-    }
-    throw error;
+  } catch (err) {
+    console.error("[storagePut] DB fallback failed:", err);
+    throw err;
   }
 }
 

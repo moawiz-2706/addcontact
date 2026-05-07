@@ -10,8 +10,33 @@ export function registerStorageProxy(app: Express) {
     }
 
     if (!ENV.forgeApiUrl || !ENV.forgeApiKey) {
-      res.status(500).send("Storage proxy not configured");
-      return;
+      // Try to serve from DB fallback
+      if (!ENV.databaseUrl) {
+        res.status(500).send("Storage proxy not configured");
+        return;
+      }
+
+      try {
+        const pool = new Pool({ connectionString: ENV.databaseUrl });
+        const result = await pool.query('SELECT data, content_type FROM stored_files WHERE key = $1 LIMIT 1', [key]);
+        await pool.end();
+
+        if (result.rowCount === 0) {
+          res.status(404).send("Stored file not found");
+          return;
+        }
+
+        const row = result.rows[0];
+        const buf = Buffer.from(row.data, 'base64');
+        res.setHeader('Content-Type', row.content_type || 'application/octet-stream');
+        res.setHeader('Cache-Control', 'public, max-age=300');
+        res.status(200).send(buf);
+        return;
+      } catch (err) {
+        console.error('[StorageProxy] DB serve failed:', err);
+        res.status(502).send('Storage proxy DB error');
+        return;
+      }
     }
 
     try {

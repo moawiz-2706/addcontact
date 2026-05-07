@@ -52,7 +52,16 @@ export function registerDynamicImageRenderRoute(app: Express) {
     }
 
     try {
-      const signedUrl = await storageGetSignedUrl(key);
+      let signedUrl: string;
+      if ((process.env.BUILT_IN_FORGE_API_URL ?? "") || (process.env.BUILT_IN_FORGE_API_KEY ?? "")) {
+        signedUrl = await storageGetSignedUrl(key);
+      } else {
+        // Build a local URL to our storage proxy which will serve DB-stored files
+        const proto = req.protocol;
+        const host = req.get("host") || "localhost";
+        signedUrl = `${proto}://${host}/manus-storage/${encodeURIComponent(key)}`;
+      }
+
       const baseResponse = await fetch(signedUrl);
       if (!baseResponse.ok) {
         res.status(502).send("Failed to fetch base image");
