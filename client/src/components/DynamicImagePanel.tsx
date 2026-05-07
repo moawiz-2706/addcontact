@@ -190,10 +190,30 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        const base64 = (reader.result as string).split(",")[1];
-        resolve(base64);
+        try {
+          const result = reader.result;
+          if (typeof result !== "string") {
+            reject(new Error("Unexpected FileReader result type"));
+            return;
+          }
+
+          const commaIndex = result.indexOf(",");
+          if (commaIndex === -1) {
+            reject(new Error("Invalid data URL from FileReader"));
+            return;
+          }
+
+          const base64 = result.slice(commaIndex + 1);
+          resolve(base64);
+        } catch (error) {
+          reject(error);
+        }
       };
-      reader.onerror = reject;
+      reader.onerror = () => reject(reader.error ?? new Error("FileReader failed"));
+      reader.onabort = () => reject(new Error("File read aborted"));
+
+      // Start reading; without this, the promise never settles and Save appears to hang.
+      reader.readAsDataURL(f);
     });
   };
 
