@@ -7,6 +7,10 @@
 
 import sharp from "sharp";
 
+export const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
+const MAX_RENDER_DIMENSION = 2200;
+const MAX_INPUT_PIXELS = 40_000_000;
+
 export interface OverlayConfig {
   fontSize?: number;
   fontColor?: string;
@@ -17,6 +21,20 @@ export interface OverlayConfig {
   bgColor?: string;
   bgOpacity?: number;
   padding?: number;
+}
+
+export async function normalizeImageForCompose(imageBuffer: Buffer): Promise<Buffer> {
+  // Downscale and normalize to reduce memory pressure in serverless functions.
+  return sharp(imageBuffer, { limitInputPixels: MAX_INPUT_PIXELS })
+    .rotate()
+    .resize({
+      width: MAX_RENDER_DIMENSION,
+      height: MAX_RENDER_DIMENSION,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({ quality: 86, mozjpeg: true })
+    .toBuffer();
 }
 
 /**
@@ -55,7 +73,7 @@ export async function compositeName(
 
   try {
     // Get image metadata
-    const meta = await sharp(imageBuffer).metadata();
+    const meta = await sharp(imageBuffer, { limitInputPixels: MAX_INPUT_PIXELS }).metadata();
     const W = meta.width || 800;
     const H = meta.height || 600;
 
@@ -108,7 +126,7 @@ export async function compositeName(
     const svgBuffer = Buffer.from(svgText);
 
     // Composite SVG onto base image
-    const output = await sharp(imageBuffer)
+    const output = await sharp(imageBuffer, { limitInputPixels: MAX_INPUT_PIXELS })
       .composite([
         {
           input: svgBuffer,

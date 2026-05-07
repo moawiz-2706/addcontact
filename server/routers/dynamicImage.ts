@@ -8,7 +8,12 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { publicProcedure, router } from "../_core/trpc";
-import { compositeName, type OverlayConfig } from "../services/imageCompositor";
+import {
+  compositeName,
+  normalizeImageForCompose,
+  MAX_UPLOAD_BYTES,
+  type OverlayConfig,
+} from "../services/imageCompositor";
 import { storagePut } from "../storage";
 
 // Overlay config schema for tRPC validation
@@ -46,10 +51,18 @@ export const dynamicImageRouter = router({
       try {
         // Decode base64 image
         const imageBuffer = Buffer.from(input.imageBase64, "base64");
+        if (imageBuffer.length > MAX_UPLOAD_BYTES) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Image too large. Max allowed size is 3.5 MB.",
+          });
+        }
+
+        const normalizedBuffer = await normalizeImageForCompose(imageBuffer);
 
         // Composite
         const pngBuffer = await compositeName(
-          imageBuffer,
+          normalizedBuffer,
           input.name,
           input.overlayConfig as OverlayConfig
         );
@@ -109,10 +122,18 @@ export const dynamicImageRouter = router({
         console.log("[dynamicImage.saveAndUpdateContact] Step 1: Compositing image...");
         try {
           const imageBuffer = Buffer.from(input.imageBase64, "base64");
+          if (imageBuffer.length > MAX_UPLOAD_BYTES) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Image too large. Max allowed size is 3.5 MB.",
+            });
+          }
+
+          const normalizedBuffer = await normalizeImageForCompose(imageBuffer);
           console.log("[dynamicImage.saveAndUpdateContact] Buffer created, size:", imageBuffer.length);
           
           const compositeBuffer = await compositeName(
-            imageBuffer,
+            normalizedBuffer,
             input.sampleName,
             input.overlayConfig as OverlayConfig
           );
@@ -123,7 +144,7 @@ export const dynamicImageRouter = router({
           const uploadStartTime = Date.now();
           
           const uploadPromises = [
-            storagePut(`dynamic-images/base`, imageBuffer, "image/png").catch(err => {
+            storagePut(`dynamic-images/base`, normalizedBuffer, "image/jpeg").catch(err => {
               console.error("[dynamicImage.saveAndUpdateContact] Base upload error:", err);
               throw new Error(`Base image upload failed: ${err.message}`);
             }),

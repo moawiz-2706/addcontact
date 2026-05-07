@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
+const MAX_UPLOAD_MB = 3.5;
+const MAX_UPLOAD_BYTES = Math.floor(MAX_UPLOAD_MB * 1024 * 1024);
+
 // Inline draggable overlay component for instant positioning (client-side)
 function DraggableTextOverlay({
   sampleName,
@@ -221,6 +224,12 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
   const handleFile = async (f: File) => {
     if (!f.type.startsWith("image/")) {
       setError("Please select a valid image file (JPG or PNG).");
+      return;
+    }
+
+    if (f.size > MAX_UPLOAD_BYTES) {
+      setError(`Image too large. Max allowed size is ${MAX_UPLOAD_MB} MB.`);
+      toast.error(`Image too large. Max allowed size is ${MAX_UPLOAD_MB} MB.`);
       return;
     }
 
