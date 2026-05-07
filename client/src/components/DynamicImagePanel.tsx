@@ -146,8 +146,8 @@ function DraggableTextOverlay({
 interface DynamicImagePanelProps {
   locationId: string;
   contactId?: string;
-  onSaveUrl?: (url: string) => void; // Callback when URL is saved
-  isModal?: boolean; // If true, includes close button and different styling
+  onSaveUrl?: (payload: { url: string; previewUrl: string }) => void;
+  isModal?: boolean;
 }
 
 export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, isModal = false }: DynamicImagePanelProps) {
@@ -162,10 +162,8 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
     previewUrl: string;
     baseImageUrl: string;
   } | null>(null);
-  const [showPreviewConfirm, setShowPreviewConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [draggingOverlay, setDraggingOverlay] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveProgress, setSaveProgress] = useState<string | null>(null);
 
@@ -182,18 +180,6 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
   });
 
   const hasContactId = Boolean(contactId && contactId.trim().length > 0);
-
-  // Listen for resize events from DraggableTextOverlay
-  useEffect(() => {
-    const onResize = (e: any) => {
-      const size = e.detail?.size;
-      if (typeof size === "number") {
-        setOverlayConfig((prev) => ({ ...prev, fontSize: size }));
-      }
-    };
-    window.addEventListener("overlay:resize", onResize as EventListener);
-    return () => window.removeEventListener("overlay:resize", onResize as EventListener);
-  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewMutationQuery = trpc.dynamicImage.previewComposite.useMutation();
@@ -265,23 +251,11 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
 
   // Debounced preview update
   useEffect(() => {
-    // Only schedule server preview when not actively dragging overlay
-    if (draggingOverlay) return;
-
     const timer = setTimeout(() => {
       refreshPreview();
     }, 500);
     return () => clearTimeout(timer);
-  }, [sampleName, overlayConfig, refreshPreview, draggingOverlay]);
-
-  // Trigger server preview when drag/resize ends
-  const handleDragEnd = useCallback(() => {
-    refreshPreview(undefined, undefined);
-  }, [refreshPreview]);
-
-  const handleResizeEnd = useCallback(() => {
-    refreshPreview(undefined, undefined);
-  }, [refreshPreview]);
+  }, [sampleName, overlayConfig, refreshPreview]);
 
   // Handle save
   const handleSave = async () => {
@@ -331,10 +305,11 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
       setSaveProgress("Finalizing...");
 
       setResult(response);
-      toast.success(hasContactId ? "Image saved and URL written to contact!" : "Image saved and template ready!");
+      toast.success(hasContactId ? "Image saved and URL generated!" : "Image saved and template ready!");
       setSaveProgress(null);
-      // Show preview confirmation screen so user can accept/decline
-      setShowPreviewConfirm(true);
+      if (onSaveUrl) {
+        onSaveUrl({ url: response.dynamicUrlTemplate, previewUrl: response.previewUrl });
+      }
     } catch (err: any) {
       console.error("[DynamicImagePanel] Save error:", err);
       console.error("[DynamicImagePanel] Error data:", err?.data);
@@ -359,15 +334,7 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
 
   const handleUseImage = () => {
     if (!result) return;
-    // notify parent (MessagingPage) to save the template and close modal
-    if (onSaveUrl) onSaveUrl(result.dynamicUrlTemplate);
-    // reset local preview state
-    setShowPreviewConfirm(false);
-    setResult(null);
-  };
-
-  const handleKeepEditing = () => {
-    setShowPreviewConfirm(false);
+    if (onSaveUrl) onSaveUrl({ url: result.dynamicUrlTemplate, previewUrl: result.previewUrl });
   };
 
   // Drag and drop
@@ -560,37 +527,8 @@ export default function DynamicImagePanel({ locationId, contactId, onSaveUrl, is
         </Button>
 
         {/* Preview confirmation after save: let user accept or return to editing */}
-        {showPreviewConfirm && result && (
-          <div className="mb-3 p-4 border rounded-lg bg-gradient-to-b from-blue-50 to-white dark:from-blue-900/20 dark:to-slate-900 border-blue-300 dark:border-blue-800 shadow-md">
-            <p className="text-base font-bold mb-3 text-slate-900 dark:text-white flex items-center gap-2">
-              ✨ Generated Image Preview
-            </p>
-            <div className="mb-4 w-full rounded-lg overflow-hidden border-2 border-blue-200 dark:border-blue-700 bg-slate-50 dark:bg-slate-800">
-              <img src={result.previewUrl} alt="Preview result" className="w-full h-auto max-h-80 object-contain" />
-            </div>
-            <div className="flex gap-2">
-              <Button 
-                variant="default" 
-                onClick={handleUseImage} 
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                size="lg"
-              >
-                ✓ Use this Image
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={handleKeepEditing} 
-                className="flex-1"
-                size="lg"
-              >
-                ← Keep Editing
-              </Button>
-            </div>
-          </div>
-        )}
-
         {/* Result (only show when NOT in preview confirmation mode) */}
-        {result && !showPreviewConfirm && (
+        {result && (
           <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded">
             <div className="flex items-start gap-2 mb-2">
               <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />

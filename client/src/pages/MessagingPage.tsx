@@ -46,6 +46,7 @@ export default function MessagingPage() {
   const [ownerLastName, setOwnerLastName] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [personalizedImageBaseUrl, setPersonalizedImageBaseUrl] = useState("");
+  const [personalizedImagePreviewUrl, setPersonalizedImagePreviewUrl] = useState("");
   const [customMessage, setCustomMessage] = useState("");
   const [personalizedImageEnabled, setPersonalizedImageEnabled] = useState(true);
 
@@ -61,6 +62,7 @@ export default function MessagingPage() {
     setOwnerLastName(ctx.ownerLastName || "");
     setBusinessName(ctx.businessName || "");
     setPersonalizedImageBaseUrl(ctx.personalizedImageBaseUrl || "");
+    setPersonalizedImagePreviewUrl("");
     setCustomMessage(ctx.customMessage || "");
     setPersonalizedImageEnabled(ctx.personalizedImageEnabled);
   }, [messagingContextQuery.data]);
@@ -118,28 +120,11 @@ export default function MessagingPage() {
     });
   };
 
-  const handleImageSave = async (url: string) => {
-    setPersonalizedImageBaseUrl(url);
-
-    try {
-      await saveMutation.mutateAsync({
-        locationId,
-        ownerFirstName,
-        ownerLastName,
-        businessName,
-        businessId: messagingContextQuery.data?.businessId || "",
-        companyId: messagingContextQuery.data?.companyId || "",
-        customMessage,
-        personalizedImageEnabled,
-        personalizedImageBaseUrl: url,
-      });
-      await messagingContextQuery.refetch();
-      toast.success("Personalized image saved to messaging settings");
-      setShowImageModal(false);
-    } catch (error) {
-      console.error("Failed to auto-save image setting:", error);
-      toast.error("Image template created, but settings update failed. Please click Update.");
-    }
+  const handleImageSave = async (payload: { url: string; previewUrl: string }) => {
+    setPersonalizedImageBaseUrl(payload.url);
+    setPersonalizedImagePreviewUrl(payload.previewUrl);
+    setShowImageModal(false);
+    toast.success("Image template saved. Click Update to apply it to GHL.");
   };
 
   if (!locationId) {
@@ -276,14 +261,19 @@ export default function MessagingPage() {
                 <div className="flex flex-col gap-2">
                   {personalizedImageBaseUrl ? (
                     <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 space-y-2">
                         <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">✅ Image Configured</p>
-                        <p className="text-xs text-blue-600 dark:text-blue-400 truncate">{personalizedImageBaseUrl}</p>
+                        {personalizedImagePreviewUrl ? (
+                          <div className="overflow-hidden rounded-md border border-blue-200 dark:border-blue-700 bg-white">
+                            <img src={personalizedImagePreviewUrl} alt="Personalized image preview" className="h-28 w-full object-contain" />
+                          </div>
+                        ) : null}
+                        <p className="text-xs text-blue-600 dark:text-blue-400 break-all">{personalizedImageBaseUrl}</p>
                       </div>
                       <button
                         onClick={() => {
                           setPersonalizedImageBaseUrl("");
-                          setShowImageModal(false);
+                          setPersonalizedImagePreviewUrl("");
                         }}
                         className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 underline whitespace-nowrap"
                       >
@@ -380,12 +370,6 @@ export default function MessagingPage() {
         <DialogContent className="max-w-2xl p-0 gap-0 rounded-xl">
           <div className="flex items-center justify-between p-5 border-b">
             <DialogTitle className="text-lg font-semibold">Upload & Configure Personalized Image</DialogTitle>
-            <button
-              onClick={() => setShowImageModal(false)}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X className="h-5 w-5" />
-            </button>
           </div>
           <div className="p-5">
             <DynamicImagePanel 
