@@ -15,6 +15,14 @@
   // Prevent double initialization
   if (window.__MANUS_DEBUG_COLLECTOR__) return;
 
+  // If the runtime indicates this is not a development/dev-hosted environment,
+  // disable the collector in production to avoid sending logs to a missing
+  // /__manus__/logs endpoint on static hosts.
+  if (!window.__MANUS_HOST_DEV__) {
+    window.__MANUS_DEBUG_COLLECTOR__ = true;
+    return;
+  }
+
   // ==========================================================================
   // Configuration
   // ==========================================================================
